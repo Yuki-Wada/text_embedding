@@ -1,0 +1,12 @@
+__pycache__/
+.vscode/
+archive/
+build/
+data/
+dist/
+experiments/
+logs/
+venv/
+*egg-info/
+*.code-workspace
+*.pyd
