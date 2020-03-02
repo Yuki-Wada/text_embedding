@@ -69,19 +69,32 @@ install_requires = [
     'dill >= 0.3.1.1',
     'tqdm >= 4.41.1',
     'numpy >= 1.18.1',
+    'gensim >= 3.8.1',
+    'Cython == 0.29.15',
+]
+
+additional_requires = [
     'pandas >= 0.25.3',
     'scikit-learn >= 0.22.1',
-    'gensim >= 3.8.1',
-    'torch == 1.3.1+cpu',
+]
+install_requires += additional_requires
+
+deep_q_requires = [
+    'gym >= 0.16.0'
+]
+install_requires += deep_q_requires
+
+torch_requires = [
+    'torch==1.4.0+cpu',
     'torchsummaryX == 1.3.0',
     'adabound == 0.0.5',
-    'Cython == 0.29.15'
 ]
+install_requires += torch_requires
 
 if os.name == 'nt':
     install_requires.append('mecab-python-windows == 0.996.3')
 else:
-    install_requires.append('mecab-python')
+    install_requires.append('mecab-python3')
 
 # Setup Function
 setup(

@@ -1,6 +1,5 @@
 __pycache__/
 .vscode/
-archive/
 build/
 data/
 dist/
@@ -10,3 +9,4 @@ venv/
 *egg-info/
 *.code-workspace
 *.pyd
+*.so
