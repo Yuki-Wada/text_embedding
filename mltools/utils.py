@@ -1,14 +1,15 @@
 """
 Define functions used by this package generally.
 """
-from typing import Optional
+from typing import List, Optional
 from functools import wraps
 import os
+import datetime
 import random
 import time
 import logging
+import json
 import numpy as np
-
 import torch
 
 def set_seed(seed: Optional[int] = None, use_gpu: bool = False):
@@ -40,12 +41,53 @@ def set_logger(
     logging.root.addHandler(file_handler)
     logging.root.addHandler(stdout_handler)
 
+def set_logging_handler(
+        loggers: Optional[List[logging.Logger]] = None,
+        log_file_path: str = 'logs/test.log',
+        info_level: int = logging.INFO):
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(process)d] [%(name)s] [%(levelname)s]: %(message)s")
+
+    stdout_handler = logging.StreamHandler()
+    stdout_handler.setFormatter(formatter)
+
+    log_file_handler = logging.FileHandler(filename=log_file_path)
+    log_file_handler.setFormatter(formatter)
+
+    if loggers is None:
+        logging.basicConfig(handlers=[stdout_handler, log_file_handler], level=info_level)
+    else:
+        for logger_to_set in loggers:
+            logger_to_set.setLevel(info_level)
+            logger_to_set.addHandler(stdout_handler)
+            logger_to_set.addHandler(log_file_handler)
+
+def dump_json(json_object, file_path):
+    with open(file_path, 'w') as _:
+        json.dump(
+            json_object,
+            _,
+            ensure_ascii=False,
+            indent=4,
+            sort_keys=True,
+            separators=(',', ': ')
+        )
+
+def setup_output_dir(output_dir_path: str, config_dict: dict):
+    output_dir_path = os.path.join(
+        output_dir_path, datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+    os.makedirs(output_dir_path, exist_ok=True)
+
+    dump_json(config_dict, os.path.join(output_dir_path, 'train.json'))
+
+    return output_dir_path
+
 def stop_watch(func):
     @wraps(func)
     def wrapper(*args, **kargs):
         start = time.time()
         result = func(*args, **kargs)
-        elapsed_time =  time.time() - start
+        elapsed_time = time.time() - start
         print('{} は {} 秒かかりました'.format(func.__name__, elapsed_time))
 
         return result
