@@ -5,20 +5,31 @@ from typing import List, Optional
 from functools import wraps
 import os
 import datetime
-import random
 import time
 import logging
 import json
 import numpy as np
-import torch
 
-def set_seed(seed: Optional[int] = None, use_gpu: bool = False):
-    random.seed(seed)
-    np.random.seed(seed)
+def set_seed(seed: Optional[int] = None):
     if seed is not None:
+        import random # pylint: disable=import-outside-toplevel
+        import numpy as np # pylint: disable=import-outside-toplevel
+        random.seed(seed)
+        np.random.seed(seed)
+
+def set_pytorch_seed(seed: Optional[int] = None, use_gpu: bool = False):
+    if seed is not None:
+        set_seed(seed)
+        import torch # pylint: disable=import-outside-toplevel
         torch.manual_seed(seed)
         if use_gpu > 0:
             torch.cuda.manual_seed_all(seed)
+
+def set_tensorflow_seed(seed: Optional[int] = None):
+    if seed is not None:
+        set_seed(seed)
+        import tensorflow as tf # pylint: disable=import-outside-toplevel
+        tf.random.set_seed(seed)
 
 def set_logger(
         log_path: str = 'logs/test.log',
@@ -73,9 +84,11 @@ def dump_json(json_object, file_path):
             separators=(',', ': ')
         )
 
+def get_date_str():
+    return datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
 def setup_output_dir(output_dir_path: str, config_dict: dict):
-    output_dir_path = os.path.join(
-        output_dir_path, datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
+    output_dir_path = os.path.join(output_dir_path, get_date_str())
     os.makedirs(output_dir_path, exist_ok=True)
 
     dump_json(config_dict, os.path.join(output_dir_path, 'train.json'))

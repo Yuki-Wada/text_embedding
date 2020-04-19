@@ -85,16 +85,15 @@ deep_q_requires = [
 install_requires += deep_q_requires
 
 torch_requires = [
-    'torch==1.4.0+cpu',
-    'torchsummaryX == 1.3.0',
+    'tensorflow==1.15',
     'adabound == 0.0.5',
 ]
 install_requires += torch_requires
 
-if os.name == 'nt':
-    install_requires.append('mecab-python-windows == 0.996.3')
-else:
-    install_requires.append('mecab-python3')
+# if os.name == 'nt':
+#     install_requires.append('mecab-python-windows == 0.996.3')
+# else:
+#     install_requires.append('mecab-python3')
 
 # Setup Function
 setup(

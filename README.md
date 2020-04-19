@@ -48,3 +48,17 @@ https://taku910.github.io/mecab/
         --workers 1 \
         --seed 0
     ```
+
+- Example: run_encoder_decoder.py
+    ```
+    python examples/run_encoder_decoder.py \
+        "--input_dir" "data/original/japaneseenglish-bilingual-corpus" \
+        "--cache_dir" "data/cache/japaneseenglish-bilingual-corpus" \
+        "--output_dir_format" "data/model/encoder_decoder/{date}" \
+        "--model_name_format" "epoch-{epoch}.hdf5" \
+        "-lr" "1e-1" \
+        "--momentum" "0.9" \
+        "--nesterov" \
+        "--epochs" "5" \
+        "--seed" "0"
+    ```

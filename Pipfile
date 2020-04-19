@@ -1,0 +1,17 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+pylint = "*"
+
+[packages]
+numpy = "*"
+cython = "*"
+torch = "==1.4.0+cpu"
+mltools = {editable = true,path = "."}
+nltk = "*"
+
+[requires]
+python_version = "3.7"

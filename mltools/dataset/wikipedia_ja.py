@@ -1,3 +1,7 @@
+"""
+Define a Data Set Class to Preprocess Japanese Wikipedia.
+"""
+
 import os
 import bz2
 import logging

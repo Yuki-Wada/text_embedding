@@ -11,8 +11,8 @@ import pandas as pd
 
 import torch
 
-from mltools.utils import set_seed, set_logging_handler, setup_output_dir#, get_optimizer
-from mltools.models.gpt import GPT, GPTDataSet, GPTDataLoader
+from mltools.utils import set_pytorch_seed, set_logging_handler, setup_output_dir#, get_optimizer
+from mltool.model.gpt import GPT, GPTDataSet, GPTDataLoader
 from mltools.preprocess.text_processor import TextProcessor
 
 logger = logging.getLogger('Pretrain GPT')
