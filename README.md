@@ -1,4 +1,4 @@
-# How to Install
+# インストール方法
 ## MeCab
 64 bit 版 Python を使うには、あらかじめ 64 bit 版 MeCab をインストールする必要がある。
 - Windows  
@@ -11,7 +11,14 @@ https://github.com/ikegami-yukino/mecab/releases/tag/v0.996
 以下の URL からソースコードをダウンロードしコンパイルする。  
 https://taku910.github.io/mecab/
 
-# How to Use
+# 使い方
+## 実行方法
+- Seq2Seq モデル
+    1. japaneseenglish-bilingual-corpus.zip を解凍する。
+    1. bilingual_data_set.py を実行し、解凍データからトークナイズ済みのデータを生成する。
+    1. run_encoder_decoder.py を実行し、トークナイズ済みのデータから Seq2Seq モデルを学習する。
+
+## スクリプト
 - Example: run_gensim_w2v.py
     ```
     python examples/run_gensim_w2v.py \
@@ -49,16 +56,24 @@ https://taku910.github.io/mecab/
         --seed 0
     ```
 
+- Example: bilingual_data_set.py
+    ```
+    python examples/preprocess/bilingual_data_set.py \
+        "--input_dir" "data/original/japaneseenglish-bilingual-corpus/wiki_corpus_2.01" \
+        "--cache_dir" "data/cache/japaneseenglish-bilingual-corpus"
+    ```
+
 - Example: run_encoder_decoder.py
     ```
     python examples/run_encoder_decoder.py \
-        "--input_dir" "data/original/japaneseenglish-bilingual-corpus" \
-        "--cache_dir" "data/cache/japaneseenglish-bilingual-corpus" \
+        "--train_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/train" \
+        "--valid_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/valid" \
         "--output_dir_format" "data/model/encoder_decoder/{date}" \
         "--model_name_format" "epoch-{epoch}.hdf5" \
+        "--model" "naive" \
         "-lr" "1e-1" \
         "--momentum" "0.9" \
         "--nesterov" \
-        "--epochs" "5" \
-        "--seed" "0"
+        "--epochs" "30" \
+        "--seed" "2"
     ```

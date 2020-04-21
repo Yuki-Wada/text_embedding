@@ -1,9 +1,10 @@
 """
-Train an Encoder-Decoder model.
+Inference a Japanese text into an English text using an Encoder-Decoder model.
 """
 import os
 import argparse
 import logging
+from collections import OrderedDict
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
@@ -170,20 +171,34 @@ def train_encoder_decoder(
     )
 
     # Train Model
+    train_losses = []
+    valid_accuracies = []
     valid_losses = []
     valid_accuracies = []
     for epoch in range(epochs):
         logger.info('Start Epoch %s', epoch + 1)
 
         # Train
+        train_loss_sum = 0.0
+        train_accuracy_sum = 0.0
+        train_data_count = 0
         with tqdm(total=len(train_data_loader), desc='Train') as pbar:
             for mb_inputs, mb_outputs in train_data_loader:
                 mb_count = mb_inputs.shape[0]
-                model.train_on_batch(
+                mb_train_loss, mb_train_accuracy = model.train_on_batch(
                     [mb_inputs, mb_outputs[:, :-1]],
                     mb_outputs[:, 1:],
                 )
+
+                train_loss_sum += mb_train_loss * mb_count
+                train_accuracy_sum += mb_train_accuracy * mb_count
+                train_data_count += mb_count
+
                 pbar.update(mb_count)
+                pbar.set_postfix(OrderedDict(
+                    loss=train_loss_sum / train_data_count,
+                    accu=train_accuracy_sum / train_data_count,
+                ))
 
         # Valid
         valid_loss_sum = 0.0
@@ -193,15 +208,19 @@ def train_encoder_decoder(
             for mb_inputs, mb_outputs in valid_data_loader:
                 mb_count = mb_inputs.shape[0]
 
-                mb_scores = model.test_on_batch(
+                mb_valid_loss, mb_valid_accuracy = model.test_on_batch(
                     [mb_inputs, mb_outputs[:, :-1]],
                     mb_outputs[:, 1:],
                 )
-                valid_loss_sum += mb_scores[0] * mb_count
-                valid_accuracy_sum += mb_scores[1] * mb_count
-                pbar.update(mb_count)
-
+                valid_loss_sum += mb_valid_loss * mb_count
+                valid_accuracy_sum += mb_valid_accuracy * mb_count
                 valid_data_count += mb_count
+
+                pbar.update(mb_count)
+                pbar.set_postfix(OrderedDict(
+                    loss=valid_loss_sum / valid_data_count,
+                    accu=valid_accuracy_sum / valid_data_count,
+                ))
 
         valid_loss = valid_loss_sum / valid_data_count
         valid_accuracy = valid_accuracy_sum / valid_data_count

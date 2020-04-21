@@ -61,32 +61,20 @@ class LearningRateCalculator:
 
 def get_keras_optimizer(optimizer_params: Dict) -> Optimizer:
     if optimizer_params['optim'] == 'sgd':
-        lr_scheduler = callbacks.LearningRateScheduler(
-            LearningRateCalculator(optimizer_params['lr'])
+        return optimizers.SGD(
+            lr=optimizer_params['lr'],
+            decay=optimizer_params['decay'],
+            momentum=optimizer_params['momentum'],
+            nesterov=optimizer_params['nesterov'],
         )
-        return [
-            optimizers.SGD(
-                lr=optimizer_params['lr'],
-                decay=optimizer_params['decay'],
-                momentum=optimizer_params['momentum'],
-                nesterov=optimizer_params['nesterov'],
-            ),
-            [lr_scheduler],
-        ]
     if optimizer_params['optim'] == 'adadelta':
-        return [
-            optimizers.Adadelta(
-                decay=optimizer_params['decay']
-            ),
-            [],
-        ]
+        return optimizers.Adadelta(
+            decay=optimizer_params['decay']
+        )
     if optimizer_params['optim'] == 'adam':
-        return [
-            optimizers.Adam(
-                lr=optimizer_params['lr'],
-                decay=optimizer_params['decay']
-            ),
-            [],
-        ]
+        return optimizers.Adam(
+            lr=optimizer_params['lr'],
+            decay=optimizer_params['decay']
+        )
 
     raise ValueError('The optimizer {} is not supported.'.format(optimizer_params['optim']))
