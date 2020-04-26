@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 class BilingualPreprocessor:
     def __init__(self, is_training=False):
-        self.ja_dictionary = Dictionary([['<PAD>', '<BOS>', '<UNK>']])
-        self.en_dictionary = Dictionary([['<PAD>', '<BeginOfEncode>', '<BOS>', '<EOS>', '<UNK>']])
+        self.ja_dictionary = Dictionary([['<PAD>'], ['<BOS>'], ['<UNK>']])
+        self.en_dictionary = Dictionary([['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.is_training = is_training
 
     def register_ja_texts(self, texts: List[List[str]]):
@@ -151,6 +151,7 @@ class BilingualDataLoader:
             en_texts = []
             for index in indices[begin_index : begin_index + self.mb_size]:
                 ja_text, en_text = self.data_set[index]
+                en_text = ['<BeginOfEncode>'] + en_text + ['<EOS>']
                 ja_texts.append(self.doc2idx_ja(ja_text))
                 en_texts.append(self.doc2idx_en(en_text))
 
