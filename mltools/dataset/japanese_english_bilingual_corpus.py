@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class BilingualPreprocessor:
     def __init__(self, is_training=False):
         self.ja_dictionary = Dictionary([['<PAD>'], ['<BOS>'], ['<UNK>']])
-        self.en_dictionary = Dictionary([['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
+        self.en_dictionary = Dictionary(
+            [['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.is_training = is_training
 
     def register_ja_texts(self, texts: List[List[str]]):
@@ -32,6 +33,10 @@ class BilingualPreprocessor:
         return self.en_dictionary.token2id['<UNK>']
 
     @property
+    def en_begin_of_encode_index(self):
+        return self.en_dictionary.token2id['<BeginOfEncode>']
+
+    @property
     def ja_vocab_count(self):
         return len(self.ja_dictionary)
 
@@ -44,6 +49,18 @@ class BilingualPreprocessor:
 
     def doc2idx_en(self, texts):
         return self.en_dictionary.doc2idx(texts, unknown_word_index=self.en_unknown_word_index)
+
+    def save(self, file_path):
+        with open(file_path, 'wb') as f:
+            dill.dump(self, f)
+
+    @classmethod
+    def load(cls, file_path):
+        with open(file_path, 'rb') as f:
+            preprocessor = dill.load(f)
+        assert isinstance(preprocessor, cls), 'Load a class different from {}'.format(cls)
+
+        return preprocessor
 
 class BilingualDataSet:
     def __init__(

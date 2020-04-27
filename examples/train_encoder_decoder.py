@@ -27,7 +27,8 @@ def get_args():
     parser.add_argument('--train_data', nargs='+', required=True)
     parser.add_argument('--valid_data', nargs='+', required=True)
     parser.add_argument('--output_dir_format', default='.')
-    parser.add_argument('--model_name_format')
+    parser.add_argument('--model_name_format', default='epoch-{epoch}.hdf5')
+    parser.add_argument('--preprocessor', default='preprocessor.bin')
 
     parser.add_argument('--model', default='naive')
     parser.add_argument('--embedding_dimension', dest='emb_dim', type=int, default=400)
@@ -75,7 +76,7 @@ def get_model(model_params):
             model_params['enc_hidden_dim'],
             model_params['dec_hidden_dim'],
         )
-    raise ValueError('The optimizer {} is not supported.'.format(model_params['model']))
+    raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
 def get_optimizer_params(args):
     if args.optim == 'sgd':
@@ -138,6 +139,7 @@ def train_encoder_decoder(
 
     # Set up Model and Optimizer
     model = get_model(model_params)
+    model.summary()
     optimizer = get_keras_optimizer(optimizer_params)
 
     # Train Model
@@ -211,19 +213,21 @@ def run():
     model_params = get_model_params(args)
     optimizer_params = get_optimizer_params(args)
 
-    output_dir_path = args.output_dir_format.format(date=get_date_str())
-    setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
-
     train_data_set = DataSet(is_training=True)
     train_data_set.input_data(args.train_data)
     train_data_loader = DataLoader(train_data_set, args.mb_size)
+    preprocessor = train_data_set.preprocessor
 
-    valid_data_set = DataSet(train_data_set.preprocessor, is_training=False)
+    valid_data_set = DataSet(preprocessor, is_training=False)
     valid_data_set.input_data(args.valid_data)
     valid_data_loader = DataLoader(valid_data_set, args.mb_size)
 
     model_params['ja_vocab_count'] = train_data_set.ja_vocab_count
     model_params['en_vocab_count'] = train_data_set.en_vocab_count
+
+    output_dir_path = args.output_dir_format.format(date=get_date_str())
+    setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
+    preprocessor.save(os.path.join(output_dir_path, args.preprocessor))
 
     train_encoder_decoder(
         output_dir_path=output_dir_path,
