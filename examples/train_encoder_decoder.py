@@ -13,7 +13,8 @@ import tensorflow as tf
 from mltools.utils import set_tensorflow_seed, set_logger, dump_json, get_date_str
 from mltools.dataset.japanese_english_bilingual_corpus \
     import BilingualDataSet as DataSet, BilingualDataLoader as DataLoader
-from mltools.model.encoder_decoder import NaiveSeq2Seq, Seq2SeqWithGlobalAttention, decoder_loss
+from mltools.model.encoder_decoder import decoder_loss, \
+    NaiveSeq2Seq, Seq2SeqWithGlobalAttention, TransformerEncoderDecoder
 from mltools.optimizer.utils import get_keras_optimizer
 from mltools.metric.metric_manager import MerticManager
 
@@ -71,7 +72,7 @@ def get_model(model_params):
             model_params['enc_hidden_dim'],
             model_params['dec_hidden_dim'],
         )
-    if  model_params['model'] == 'global_attention':
+    if model_params['model'] == 'global_attention':
         return Seq2SeqWithGlobalAttention(
             model_params['ja_vocab_count'],
             model_params['en_vocab_count'],
@@ -79,6 +80,18 @@ def get_model(model_params):
             model_params['enc_hidden_dim'],
             model_params['dec_hidden_dim'],
         )
+    if model_params['model'] == 'transformer': 
+        return TransformerEncoderDecoder(
+            encoder_vocab_count=model_params['ja_vocab_count'],
+            decoder_vocab_count=model_params['en_vocab_count'],
+            emb_dim=model_params['emb_dim'],
+            encoder_hidden_dim=model_params['enc_hidden_dim'],
+            decoder_hidden_dim=model_params['dec_hidden_dim'],
+            head_count=4,
+            feed_forward_hidden_dim=6,
+            block_count=6,
+        )
+
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
 def get_optimizer_params(args):

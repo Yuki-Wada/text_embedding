@@ -8,7 +8,8 @@ import json
 from tqdm import tqdm
 
 from mltools.utils import set_tensorflow_seed, set_logger, dump_json
-from mltools.model.encoder_decoder import NaiveSeq2Seq, Seq2SeqWithGlobalAttention
+from mltools.model.encoder_decoder import NaiveSeq2Seq, \
+    Seq2SeqWithGlobalAttention, TransformerEncoderDecoder
 from mltools.dataset.japanese_english_bilingual_corpus \
     import BilingualPreprocessor as Preprocessor, BilingualDataSet as DataSet, \
         BilingualDataLoader as DataLoader
@@ -47,6 +48,17 @@ def get_model(model_params):
             model_params['emb_dim'],
             model_params['enc_hidden_dim'],
             model_params['dec_hidden_dim'],
+        )
+    if model_params['model'] == 'transformer': 
+        return TransformerEncoderDecoder(
+            encoder_vocab_count=model_params['ja_vocab_count'],
+            decoder_vocab_count=model_params['en_vocab_count'],
+            emb_dim=model_params['emb_dim'],
+            encoder_hidden_dim=model_params['enc_hidden_dim'],
+            decoder_hidden_dim=model_params['dec_hidden_dim'],
+            head_count=4,
+            feed_forward_hidden_dim=6,
+            block_count=6,
         )
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
