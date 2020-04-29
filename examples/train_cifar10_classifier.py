@@ -36,12 +36,12 @@ def get_args():
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--nesterov', action='store_true')
     parser.add_argument('--rho', type=float, default=0.9)
-    parser.add_argument('--grad_clip', dest='grad_clip', type=float, default=10.0)
-    parser.add_argument(
-        '--lr_trigger', dest='lr_trigger', nargs='+',
-        help='The finished ratio at which to exponentially shift a learning rate',
-        type=int, default=[2, 128, 192, 232])
+    parser.add_argument('--clipnorm', type=float, default=1.0)
     parser.add_argument('--final_lr', type=float, default=1e-1)
+
+    parser.add_argument('--lr_scheduler', default='exponential_decay')
+    parser.add_argument('--lr_decay_rate', default=1e-1)
+    parser.add_argument('--lr_decay_epochs', nargs='+', type=float, default=[3, 16, 23, 28])
 
     parser.add_argument('--epochs', help="epoch count", type=int, default=256)
     parser.add_argument('--mb_size', help="minibatch size", type=int, default=64)
@@ -65,27 +65,44 @@ def get_model(model_params):
     )
 
 def get_optimizer_params(args):
+    lr_scheduler_params = {}
+    lr_scheduler_params['type'] = args.lr_scheduler
+    lr_scheduler_params['kwargs'] = {}
+    if args.lr_scheduler == 'constant':
+        pass
+    if args.lr_scheduler == 'exponential_decay':
+        lr_scheduler_params['kwargs']['decay_rate'] = args.lr_decay_rate
+        lr_scheduler_params['kwargs']['decay_epochs'] = args.lr_decay_epochs
+    else:
+        raise ValueError(
+            'The learning rate scheduler {} is not supported.'.format(args.lr_scheduler))
+
+    optimizer_params = {}
+    optimizer_params['type'] = args.optim
+    optimizer_params['lr_scheduler'] = lr_scheduler_params
+
+    optimizer_params['kwargs'] = {}
+    if args.clipnorm:
+        optimizer_params['kwargs']['clipnorm'] = args.clipnorm
+
     if args.optim == 'sgd':
-        return {
-            'optim': args.optim,
-            'lr': args.lr,
-            'decay': args.lr * args.weight_decay,
-            'momentum': args.momentum,
-            'nesterov': args.nesterov,
-        }
+        optimizer_params['kwargs']['lr'] = args.lr
+        optimizer_params['kwargs']['decay'] = args.lr * args.weight_decay
+        optimizer_params['kwargs']['momentum'] = args.momentum
+        optimizer_params['kwargs']['nesterov'] = args.nesterov
+
+        return optimizer_params
 
     if args.optim == 'adadelta':
-        return {
-            'optim': args.optim,
-            'decay': args.weight_decay,
-        }
+        optimizer_params['kwargs']['decay'] = args.weight_decay
+
+        return optimizer_params
 
     if args.optim == 'adam':
-        return {
-            'optim': args.optim,
-            'lr': args.lr,
-            'decay': args.weight_decay,
-        }
+        optimizer_params['kwargs']['lr'] = args.lr
+        optimizer_params['kwargs']['decay'] = args.weight_decay
+
+        return optimizer_params
 
     raise ValueError('The optimizer {} is not supported.'.format(args.optimizer))
 
@@ -111,7 +128,7 @@ def train(
     # Set up Model and Optimizer
     model = get_model(model_params)
     model.summary()
-    optimizer = get_keras_optimizer(optimizer_params)
+    optimizer, lr_scheduler = get_keras_optimizer(optimizer_params)
 
     # Train Model
     mertic_manager = MerticManager(output_dir_path, epochs)
@@ -119,6 +136,8 @@ def train(
         logger.info('Epoch: %d', epoch + 1)
 
         # Train
+        lr_scheduler.set_lr(optimizer, epoch + 1)
+
         train_loss_sum = 0
         train_data_count = 0
         with tqdm(total=len(train_data_loader), desc="Train CNN") as pbar:
