@@ -31,13 +31,6 @@ def get_args():
 
     return args
 
-def get_model_params(args):
-    return {
-        'emb_dim': args.emb_dim,
-        'enc_hidden_dim': args.enc_hidden_dim,
-        'dec_hidden_dim': args.dec_hidden_dim,
-    }
-
 def get_model(model_params):
     if model_params['model'] == 'naive':
         return NaiveSeq2Seq(

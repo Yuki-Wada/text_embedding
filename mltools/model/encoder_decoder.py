@@ -1,5 +1,5 @@
 """
-Define a transformer model which assign a label to an input text.
+Define an Encoder-Decoder model.
 """
 import numpy as np
 import tensorflow as tf
@@ -43,44 +43,43 @@ class NaiveSeq2Seq(Model):
         decoder_inputs = layers.Input(shape=(None,))
         self(encoder_inputs, decoder_inputs)
 
-    def call(self, encoder_inputs, decoder_inputs):
+    def encode(self, encoder_inputs):
         encoder_embedded = self.encoder_embedding_layer(encoder_inputs)
         encoder_masks = self.encoder_embedding_layer.compute_mask(encoder_inputs)
-        _, encoder_state_h, encoder_state_c = self.encoder_rnn(
+        encoder_outputs, encoder_state_h, encoder_state_c = self.encoder_rnn(
             encoder_embedded, mask=encoder_masks)
-        encoder_states = [encoder_state_h, encoder_state_c]
+        state = [encoder_state_h, encoder_state_c]
 
+        return encoder_outputs, state, encoder_masks
+
+    def decode(self, decoder_inputs, states):
         decoder_embedded = self.decoder_embedding_layer(decoder_inputs)
         decoder_masks = self.decoder_embedding_layer.compute_mask(decoder_inputs)
-        decoder_sequences, _, _ = self.decoder_rnn(
+        decoder_sequences, decoder_state_h, decoder_state_c = self.decoder_rnn(
             decoder_embedded,
             mask=decoder_masks,
-            initial_state=encoder_states,
+            initial_state=states,
         )
+
         decoder_outputs = self.output_layer(decoder_sequences)
+
+        return decoder_outputs, [decoder_state_h, decoder_state_c]
+
+    def call(self, encoder_inputs, decoder_inputs):
+        _, state, _ = self.encode(encoder_inputs)
+        decoder_outputs, _ = self.decode(decoder_inputs, state)
 
         return decoder_outputs
 
     def inference(self, encoder_inputs, begin_of_encode_index, seq_len):
-        encoder_embedded = self.encoder_embedding_layer(encoder_inputs)
-        encoder_masks = self.encoder_embedding_layer.compute_mask(encoder_inputs)
-        _, encoder_state_h, encoder_state_c = self.encoder_rnn(
-            encoder_embedded, mask=encoder_masks)
+        _, state, _ = self.encode(encoder_inputs)
 
         mb_size = encoder_inputs.shape[0]
         decoder_indices = np.empty((mb_size, seq_len), dtype=np.int32)
-
         decoder_inputs = np.ones((mb_size,), dtype=np.int32) * begin_of_encode_index
-        decoder_state_h = encoder_state_h
-        decoder_state_c = encoder_state_c
         for i in range(seq_len):
             decoder_inputs = np.expand_dims(decoder_inputs, axis=1)
-            decoder_embedded = self.decoder_embedding_layer(decoder_inputs)
-            decoder_inputs, decoder_state_h, decoder_state_c = self.decoder_rnn(
-                decoder_embedded,
-                initial_state=[decoder_state_h, decoder_state_c],
-            )
-            decoder_outputs = self.output_layer(decoder_inputs)
+            decoder_outputs, state = self.decode(decoder_inputs, state)
             decoder_probs = tf.nn.softmax(decoder_outputs, axis=2).numpy()[:, 0]
             decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
             decoder_inputs = np.array([
@@ -132,54 +131,55 @@ class Seq2SeqWithGlobalAttention(Model):
         decoder_inputs = layers.Input(shape=(None,))
         self(encoder_inputs, decoder_inputs)
 
-    def call(self, encoder_inputs, decoder_inputs):
+    def encode(self, encoder_inputs):
         encoder_embedded = self.encoder_embedding_layer(encoder_inputs)
         encoder_masks = self.encoder_embedding_layer.compute_mask(encoder_inputs)
-        encoder_sequences, encoder_state_h, encoder_state_c = self.encoder_rnn(
+        encoder_outputs, encoder_state_h, encoder_state_c = self.encoder_rnn(
             encoder_embedded, mask=encoder_masks)
-        encoder_states = [encoder_state_h, encoder_state_c]
+        state = [encoder_state_h, encoder_state_c]
 
+        return encoder_outputs, state, encoder_masks
+
+    def decode(self, decoder_inputs, states, encoder_outputs, encoder_masks):
         decoder_embedded = self.decoder_embedding_layer(decoder_inputs)
         decoder_masks = self.decoder_embedding_layer.compute_mask(decoder_inputs)
-        decoder_sequences, _, _ = self.decoder_rnn(
+        decoder_sequences, decoder_state_h, decoder_state_c = self.decoder_rnn(
             decoder_embedded,
             mask=decoder_masks,
-            initial_state=encoder_states,
+            initial_state=states,
         )
 
         scores = backend.batch_dot(
             self.global_attention_layer(decoder_sequences),
-            backend.permute_dimensions(encoder_sequences, (0, 2, 1)),
+            backend.permute_dimensions(encoder_outputs, (0, 2, 1)),
         )
         scores -= backend.expand_dims(
             1 - backend.cast(encoder_masks, dtype='float32'), axis=1) * 1e18
         attentions = backend.softmax(scores, axis=2)
-        weighted = backend.batch_dot(attentions, encoder_sequences)
+        weighted = backend.batch_dot(attentions, encoder_outputs)
         concat = self.concat_layer([decoder_sequences, weighted])
 
         decoder_outputs = self.output_layer(concat)
+
+        return decoder_outputs, [decoder_state_h, decoder_state_c]
+
+    def call(self, encoder_inputs, decoder_inputs):
+        encoder_outputs, state, encoder_masks = self.encode(encoder_inputs)
+        decoder_outputs, _ = self.decode(
+            decoder_inputs, state, encoder_outputs, encoder_masks)
+
         return decoder_outputs
 
     def inference(self, encoder_inputs, begin_of_encode_index, seq_len):
-        encoder_embedded = self.encoder_embedding_layer(encoder_inputs)
-        encoder_masks = self.encoder_embedding_layer.compute_mask(encoder_inputs)
-        _, encoder_state_h, encoder_state_c = self.encoder_rnn(
-            encoder_embedded, mask=encoder_masks)
+        encoder_outputs, state, encoder_masks = self.encode(encoder_inputs)
 
         mb_size = encoder_inputs.shape[0]
         decoder_indices = np.empty((mb_size, seq_len), dtype=np.int32)
-
         decoder_inputs = np.ones((mb_size,), dtype=np.int32) * begin_of_encode_index
-        decoder_state_h = encoder_state_h
-        decoder_state_c = encoder_state_c
         for i in range(seq_len):
             decoder_inputs = np.expand_dims(decoder_inputs, axis=1)
-            decoder_embedded = self.decoder_embedding_layer(decoder_inputs)
-            decoder_inputs, decoder_state_h, decoder_state_c = self.decoder_rnn(
-                decoder_embedded,
-                initial_state=[decoder_state_h, decoder_state_c],
-            )
-            decoder_outputs = self.output_layer(decoder_inputs)
+            decoder_outputs, state = self.decode(
+                decoder_inputs, state, encoder_outputs, encoder_masks)
             decoder_probs = tf.nn.softmax(decoder_outputs, axis=2).numpy()[:, 0]
             decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
             decoder_inputs = np.array([

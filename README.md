@@ -63,9 +63,9 @@ https://taku910.github.io/mecab/
         "--cache_dir" "data/cache/japaneseenglish-bilingual-corpus"
     ```
 
-- Example: run_encoder_decoder.py
+- Example: train_encoder_decoder.py
     ```
-    python examples/run_encoder_decoder.py \
+    python examples/train_encoder_decoder.py \
         "--train_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/train" \
         "--valid_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/valid" \
         "--output_dir_format" "data/model/encoder_decoder/{date}" \
@@ -74,6 +74,21 @@ https://taku910.github.io/mecab/
         "-lr" "1e-1" \
         "--momentum" "0.9" \
         "--nesterov" \
+        "--epochs" "30" \
+        "--seed" "2"
+    ```
+
+- Example: train_cifar10_classifier.py
+    ```
+    python examples/train_cifar10_classifier.py",
+        "--train_image_npy_path" "data/preprocess/CIFAR-10/train_image.npy" \
+        "--train_label_npy_path" "data/preprocess/CIFAR-10/train_label.npy" \
+        "--test_image_npy_path" "data/preprocess/CIFAR-10/test_image.npy" \
+        "--test_label_npy_path" "data/preprocess/CIFAR-10/test_label.npy" \
+        "--output_dir_format" "data/model/cifar10/{date}" \
+        "--model_name_format" "epoch-{epoch}.h5" \
+        "--optimizer" "adam" \
+        "-lr" "1e-1" \
         "--epochs" "30" \
         "--seed" "2"
     ```

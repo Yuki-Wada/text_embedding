@@ -9,9 +9,8 @@ pylint = "*"
 [packages]
 numpy = "*"
 cython = "*"
-torch = "==1.4.0+cpu"
-mltools = {editable = true,path = "."}
 nltk = "*"
+tensorflow = "*"
 
 [requires]
 python_version = "3.7"

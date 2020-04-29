@@ -8,22 +8,13 @@ import datetime
 import time
 import logging
 import json
-import numpy as np
 
 def set_seed(seed: Optional[int] = None):
     if seed is not None:
         import random # pylint: disable=import-outside-toplevel
-        import numpy as np # pylint: disable=import-outside-toplevel
+        import numpy as np # pylint: disable=import-outside-toplevel,redefined-outer-name
         random.seed(seed)
         np.random.seed(seed)
-
-def set_pytorch_seed(seed: Optional[int] = None, use_gpu: bool = False):
-    if seed is not None:
-        set_seed(seed)
-        import torch # pylint: disable=import-outside-toplevel
-        torch.manual_seed(seed)
-        if use_gpu > 0:
-            torch.cuda.manual_seed_all(seed)
 
 def set_tensorflow_seed(seed: Optional[int] = None):
     if seed is not None:

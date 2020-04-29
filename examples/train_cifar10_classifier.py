@@ -1,5 +1,5 @@
 """
-Train an Encoder-Decoder model.
+Train a classifier for CIFAR-10 data set by various optimizers.
 """
 import os
 import argparse
@@ -11,9 +11,8 @@ import numpy as np
 import tensorflow as tf
 
 from mltools.utils import set_tensorflow_seed, set_logger, dump_json, get_date_str
-from mltools.dataset.japanese_english_bilingual_corpus \
-    import BilingualDataSet as DataSet, BilingualDataLoader as DataLoader
-from mltools.model.encoder_decoder import NaiveSeq2Seq, Seq2SeqWithGlobalAttention, decoder_loss
+from mltools.dataset.cifar10 import Cifar10DataSet, Cifar10DataLoader
+from mltools.model.resnet import ResNet, calc_loss
 from mltools.optimizer.utils import get_keras_optimizer
 from mltools.metric.metric_manager import MerticManager
 
@@ -22,26 +21,30 @@ logger = logging.getLogger(__name__)
 def get_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--train_data', nargs='+', required=True)
-    parser.add_argument('--valid_data', nargs='+', required=True)
-    parser.add_argument('--output_dir_format', default='.')
-    parser.add_argument('--model_name_format', default='epoch-{epoch}.hdf5')
-    parser.add_argument('--preprocessor', default='preprocessor.bin')
+    parser.add_argument('--gpu_id', type=int, default=-1)
 
-    parser.add_argument('--model', default='naive')
-    parser.add_argument('--embedding_dimension', dest='emb_dim', type=int, default=400)
-    parser.add_argument('--encoder_hidden_dimension', dest='enc_hidden_dim', type=int, default=200)
-    parser.add_argument('--decoder_hidden_dimension', dest='dec_hidden_dim', type=int, default=200)
+    parser.add_argument("--train_image_npy_path", help="train image npy file", required=True)
+    parser.add_argument("--train_label_npy_path", help="train label npy file", required=True)
+    parser.add_argument("--test_image_npy_path", help="test image npy file", required=True)
+    parser.add_argument("--test_label_npy_path", help="test label npy file", required=True)
+    parser.add_argument("--output_dir_format", default='.')
+    parser.add_argument('--model_name_format', default='epoch-{epoch}.hdf5')
 
     parser.add_argument('--optimizer', dest='optim', default='sgd')
     parser.add_argument('--learning_rate', '-lr', dest='lr', type=float, default=1e-3)
-    parser.add_argument('--weight_decay', '-wd', type=float, default=0.0)
-    parser.add_argument('--momentum', type=float, default=0.0)
+    parser.add_argument('--weight_decay', '-wd', type=float, default=0)
+    parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--nesterov', action='store_true')
+    parser.add_argument('--rho', type=float, default=0.9)
+    parser.add_argument('--grad_clip', dest='grad_clip', type=float, default=10.0)
+    parser.add_argument(
+        '--lr_trigger', dest='lr_trigger', nargs='+',
+        help='The finished ratio at which to exponentially shift a learning rate',
+        type=int, default=[2, 128, 192, 232])
     parser.add_argument('--final_lr', type=float, default=1e-1)
 
-    parser.add_argument('--epochs', type=int, default=20, help='epoch count')
-    parser.add_argument('--mb_size', type=int, default=32, help='minibatch size')
+    parser.add_argument('--epochs', help="epoch count", type=int, default=256)
+    parser.add_argument('--mb_size', help="minibatch size", type=int, default=64)
 
     parser.add_argument('--seed', type=int, help='random seed for initialization')
 
@@ -51,30 +54,15 @@ def get_args():
 
 def get_model_params(args):
     return {
-        'model': args.model,
-        'emb_dim': args.emb_dim,
-        'enc_hidden_dim': args.enc_hidden_dim,
-        'dec_hidden_dim': args.dec_hidden_dim,
+        'label_count': 10,
+        'input_shape': (32, 32, 3),
     }
 
 def get_model(model_params):
-    if model_params['model'] == 'naive':
-        return NaiveSeq2Seq(
-            model_params['ja_vocab_count'],
-            model_params['en_vocab_count'],
-            model_params['emb_dim'],
-            model_params['enc_hidden_dim'],
-            model_params['dec_hidden_dim'],
-        )
-    if  model_params['model'] == 'global_attention':
-        return Seq2SeqWithGlobalAttention(
-            model_params['ja_vocab_count'],
-            model_params['en_vocab_count'],
-            model_params['emb_dim'],
-            model_params['enc_hidden_dim'],
-            model_params['dec_hidden_dim'],
-        )
-    raise ValueError('The model {} is not supported.'.format(model_params['model']))
+    return ResNet(
+        label_count=model_params['label_count'],
+        input_shape=model_params['input_shape'],
+    )
 
 def get_optimizer_params(args):
     if args.optim == 'sgd':
@@ -107,7 +95,7 @@ def setup_output_dir(output_dir_path, args, model_params, optimizer_params):
     dump_json(model_params, os.path.join(output_dir_path, 'model.json'))
     dump_json(optimizer_params, os.path.join(output_dir_path, 'optimizer.json'))
 
-def train_encoder_decoder(
+def train(
         output_dir_path,
         model_name_format,
         train_data_loader,
@@ -128,19 +116,18 @@ def train_encoder_decoder(
     # Train Model
     mertic_manager = MerticManager(output_dir_path, epochs)
     for epoch in range(epochs):
-        logger.info('Start Epoch %s', epoch + 1)
+        logger.info('Epoch: %d', epoch + 1)
 
         # Train
-        train_loss_sum = 0.0
+        train_loss_sum = 0
         train_data_count = 0
-        with tqdm(total=len(train_data_loader), desc='Train') as pbar:
-            for mb_inputs, mb_outputs in train_data_loader:
-                mb_count = mb_inputs.shape[0]
-
+        with tqdm(total=len(train_data_loader), desc="Train CNN") as pbar:
+            for mb_images, mb_labels in train_data_loader:
+                mb_count = mb_images.shape[0]
                 try:
                     with tf.GradientTape() as tape:
-                        mb_probs = model(mb_inputs, mb_outputs[:, :-1], training=True)
-                        mb_train_loss = decoder_loss(mb_outputs[:, 1:], mb_probs)
+                        mb_probs = model(mb_images, training=True)
+                        mb_train_loss = calc_loss(mb_labels, mb_probs)
 
                     grads = tape.gradient(mb_train_loss, model.trainable_variables)
                     optimizer.apply_gradients(zip(grads, model.trainable_variables))
@@ -159,7 +146,6 @@ def train_encoder_decoder(
                 pbar.update(mb_count)
                 pbar.set_postfix(OrderedDict(
                     loss=mb_train_loss,
-                    plex=np.exp(mb_train_loss),
                 ))
 
             train_loss = train_loss_sum / train_data_count
@@ -170,12 +156,12 @@ def train_encoder_decoder(
         valid_loss_sum = 0.0
         valid_data_count = 0
         with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
-            for mb_inputs, mb_outputs in valid_data_loader:
-                mb_count = mb_inputs.shape[0]
+            for mb_images, mb_labels in valid_data_loader:
+                mb_count = mb_images.shape[0]
 
                 try:
-                    mb_probs = model(mb_inputs, mb_outputs[:, :-1])
-                    mb_valid_loss = decoder_loss(mb_outputs[:, 1:], mb_probs).numpy()
+                    mb_probs = model(mb_images)
+                    mb_valid_loss = calc_loss(mb_labels, mb_probs).numpy()
 
                     valid_loss_sum += mb_valid_loss * mb_count
                     valid_data_count += mb_count
@@ -190,17 +176,13 @@ def train_encoder_decoder(
                 pbar.update(mb_count)
                 pbar.set_postfix(OrderedDict(
                     loss=mb_valid_loss,
-                    plex=np.exp(mb_valid_loss),
                 ))
 
             valid_loss = valid_loss_sum / valid_data_count
-            logger.info('Valid Loss: %f', valid_loss)
             mertic_manager.register_loss(valid_loss, epoch, 'valid')
+            logger.info('Valid Loss: %f', valid_loss)
 
         # Save
-        mertic_manager.plot_loss('Loss', os.path.join(output_dir_path, 'loss.png'))
-        mertic_manager.save_score()
-
         monitored_metric = - valid_loss
         if best_monitored_metric is None or best_monitored_metric < monitored_metric:
             logger.info('The current score is best.')
@@ -215,29 +197,22 @@ def run():
     set_tensorflow_seed(args.seed)
     set_logger()
 
-    train_data_set = DataSet(is_training=True)
-    train_data_set.input_data(args.train_data)
-    train_data_loader = DataLoader(train_data_set, args.mb_size)
-    preprocessor = train_data_set.preprocessor
-
-    valid_data_set = DataSet(is_training=False, preprocessor=preprocessor)
-    valid_data_set.input_data(args.valid_data)
-    valid_data_loader = DataLoader(valid_data_set, args.mb_size)
+    train_data_set = Cifar10DataSet(args.train_image_npy_path, args.train_label_npy_path)
+    train_data_loader = Cifar10DataLoader(train_data_set, args.mb_size)
+    test_data_set = Cifar10DataSet(args.test_image_npy_path, args.test_label_npy_path)
+    test_data_loader = Cifar10DataLoader(test_data_set, args.mb_size)
 
     model_params = get_model_params(args)
     optimizer_params = get_optimizer_params(args)
-    model_params['ja_vocab_count'] = train_data_set.ja_vocab_count
-    model_params['en_vocab_count'] = train_data_set.en_vocab_count
 
     output_dir_path = args.output_dir_format.format(date=get_date_str())
     setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
-    preprocessor.save(os.path.join(output_dir_path, args.preprocessor))
 
-    train_encoder_decoder(
+    train(
         output_dir_path=output_dir_path,
         model_name_format=args.model_name_format,
         train_data_loader=train_data_loader,
-        valid_data_loader=valid_data_loader,
+        valid_data_loader=test_data_loader,
         model_params=model_params,
         optimizer_params=optimizer_params,
         epochs=args.epochs,
