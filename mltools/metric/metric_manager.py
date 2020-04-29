@@ -2,11 +2,14 @@
 Define a class to manage metrics.
 """
 import os
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 from mltools.utils import dump_json
+
+logger = logging.getLogger(__name__)
 
 class MerticManager:
     def __init__(self, output_dir_path, epoch_count):

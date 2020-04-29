@@ -97,11 +97,10 @@ def inference_encoder_decoder(
 def run():
     set_logger()
     args = get_args()
+    set_tensorflow_seed(args.seed)
 
     with open(args.model_params, 'r') as f:
         model_params = json.load(f)
-
-    # output_dir_path = args.output_dir_format.format(date=get_date_str())
 
     preprocessor = Preprocessor.load(args.preprocessor)
 

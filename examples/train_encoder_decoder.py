@@ -227,17 +227,19 @@ def train_encoder_decoder(
 
         monitored_metric = - valid_loss
         if best_monitored_metric is None or best_monitored_metric < monitored_metric:
+            best_monitored_metric = monitored_metric
             logger.info('The current score is best.')
             if model_name_format:
                 model_name = model_name_format.format(epoch=epoch + 1)
                 logger.info('Save the model as %s', model_name)
                 model.save_weights(os.path.join(output_dir_path, model_name))
 
-def run():
-    args = get_args()
+    return best_monitored_metric
 
-    set_tensorflow_seed(args.seed)
+def run():
     set_logger()
+    args = get_args()
+    set_tensorflow_seed(args.seed)
 
     train_data_set = DataSet(is_training=True)
     train_data_set.input_data(args.train_data)

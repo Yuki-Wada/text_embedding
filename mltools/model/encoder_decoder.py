@@ -1,9 +1,12 @@
 """
 Define an Encoder-Decoder model.
 """
+import logging
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model, backend, layers
+
+logger = logging.getLogger(__name__)
 
 class NaiveSeq2Seq(Model):
     def __init__(
@@ -189,6 +192,10 @@ class Seq2SeqWithGlobalAttention(Model):
             decoder_indices[:, i] = decoder_inputs
 
         return decoder_indices
+
+class TransformerEncoderDecoder(Model):
+    def __init__(self):
+        super(TransformerEncoderDecoder, self).__init__()
 
 def decoder_loss(true, pred):
     is_effective = tf.cast(true != 0, tf.float32)

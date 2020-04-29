@@ -1,4 +1,7 @@
-# インストール方法
+# インストール手順
+- Python 3.7.6 64bit
+- Mecab v0.996
+
 ## MeCab
 64 bit 版 Python を使うには、あらかじめ 64 bit 版 MeCab をインストールする必要がある。
 - Windows  
@@ -91,4 +94,9 @@ https://taku910.github.io/mecab/
         "-lr" "1e-1" \
         "--epochs" "30" \
         "--seed" "2"
+    ```
+
+- Example: train_cart_pole.py
+    ```
+    python examples/train_cart_pole.py
     ```
