@@ -43,7 +43,7 @@ def get_args():
     parser.add_argument('--final_lr', type=float, default=1e-1)
 
     parser.add_argument('--lr_scheduler', default='exponential_decay')
-    parser.add_argument('--lr_decay_rate', default=1e-1)
+    parser.add_argument('--lr_decay_rate', type=float, default=1e-1)
     parser.add_argument('--lr_decay_epochs', nargs='+', type=float, default=[3, 16, 23, 28])
 
     parser.add_argument('--epochs', type=int, default=20, help='epoch count')

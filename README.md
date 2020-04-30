@@ -1,9 +1,11 @@
 # インストール手順
-- Python 3.7.6 64bit
-- Mecab v0.996
+1. Python 3.7.6 64bit
+1. MeCab v0.996
+1. CUDA 10.1
+1. cuDNN 7.6
 
 ## MeCab
-64 bit 版 Python を使うには、あらかじめ 64 bit 版 MeCab をインストールする必要がある。
+64 bit 版 Python を使うため、あらかじめ 64 bit 版 MeCab をインストールする必要がある。
 - Windows  
 以下の URL からダウンロードする。  
 https://github.com/ikegami-yukino/mecab/releases/tag/v0.996
@@ -14,6 +16,13 @@ https://github.com/ikegami-yukino/mecab/releases/tag/v0.996
 以下の URL からソースコードをダウンロードしコンパイルする。  
 https://taku910.github.io/mecab/
 
+## CUDA, cuDNN
+GPU で TensorFlow を使用するために必要。  
+TensorFlow は他ツールのバージョン指定が厳しい。依存関係は以下の通り。
+- Python 3.5-3.7
+- CUDA 10.1
+- cuDNN 7.6
+
 # 使い方
 ## 実行方法
 - Seq2Seq モデル
@@ -22,9 +31,9 @@ https://taku910.github.io/mecab/
     1. run_encoder_decoder.py を実行し、トークナイズ済みのデータから Seq2Seq モデルを学習する。
 
 ## スクリプト
-- Example: run_gensim_w2v.py
+- Example: train_gensim_w2v.py
     ```
-    python examples/run_gensim_w2v.py \
+    python examples/train_gensim_w2v.py \
         --input_dir data/original/wikipedia_ja \
         --cache_dir data/cache/wikipedia_ja \
         --model_name_to_save data/model/gensim_w2v.bin \
@@ -40,9 +49,9 @@ https://taku910.github.io/mecab/
         --seed 0
     ```
 
-- Example: run_my_w2v.py
+- Example: train_my_w2v.py
     ```
-    python examples/run_my_w2v.py \
+    python examples/train_my_w2v.py \
         --input_dir data/original/wikipedia_ja \
         --cache_dir data/cache/wikipedia_ja \
         --model_name_to_save data/model/my_w2v.bin \
@@ -100,3 +109,9 @@ https://taku910.github.io/mecab/
     ```
     python examples/train_cart_pole.py
     ```
+
+# ToDo
+- GPU 対応
+- Google Colab 対応
+- Pipfile 周りの対応
+- Linux (主に Ubuntu) 対応

@@ -1,5 +1,5 @@
 """
-Define a transformer model which assign a label to an input text.
+Define ResNet model.
 """
 from typing import Tuple
 import tensorflow as tf
@@ -46,11 +46,13 @@ class BottleneckBlock(Model):
         self.units = []
         for kernel_size in kernel_sizes:
             self.units.append(BottleneckUnit(filters, kernel_size))
+        self.pool = layers.MaxPooling2D(pool_size=2, strides=None, padding='valid')
 
     def call(self, x):
         h = x
         for unit in self.units:
             h = unit(h)
+        h = self.pool(h)
 
         return h
 

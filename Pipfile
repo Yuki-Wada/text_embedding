@@ -10,7 +10,9 @@ pylint = "*"
 numpy = "*"
 cython = "*"
 nltk = "*"
-tensorflow = "*"
+tensorflow = "==2.1.0"
+mecab-python-windows = "*"
+gensim = "*"
 
 [requires]
 python_version = "3.7"
