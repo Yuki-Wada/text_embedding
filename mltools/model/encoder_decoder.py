@@ -333,8 +333,8 @@ class TransformerEncoderDecoder(Model):
 
         return decoder_indices
 
-def decoder_loss(true, pred):
-    is_effective = tf.cast(true != 0, tf.float32)
+def decoder_loss(true, pred, pad_index=0):
+    is_effective = tf.cast(true != pad_index, tf.float32)
     weights = is_effective / (tf.math.reduce_sum(is_effective, axis=1, keepdims=True) + 1e-18)
 
     entropy_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(true, pred, name=None)

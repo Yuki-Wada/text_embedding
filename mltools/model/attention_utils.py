@@ -110,6 +110,7 @@ class Transformer(Model):
         h = self.attention(x, x, x, mask)
         h = h + x
         h0 = self.layer_norm_after_attention(h)
+
         h = self.hidden_layer(h0)
         h = self.output_layer(h)
         h = h + h0
