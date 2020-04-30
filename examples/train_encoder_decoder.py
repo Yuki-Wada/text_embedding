@@ -9,8 +9,10 @@ from tqdm import tqdm
 import numpy as np
 
 import tensorflow as tf
+from tensorflow.keras.backend import clear_session
 
-from mltools.utils import set_tensorflow_seed, set_logger, dump_json, get_date_str
+from mltools.utils import set_tensorflow_gpu, set_tensorflow_seed, set_logger, \
+    dump_json, get_date_str
 from mltools.dataset.japanese_english_bilingual_corpus \
     import BilingualDataSet as DataSet, BilingualDataLoader as DataLoader
 from mltools.model.encoder_decoder import decoder_loss, \
@@ -39,8 +41,8 @@ def get_args():
     parser.add_argument('--weight_decay', '-wd', type=float, default=0.0)
     parser.add_argument('--momentum', type=float, default=0.0)
     parser.add_argument('--nesterov', action='store_true')
-    parser.add_argument('--clipnorm', type=float, default=1.0)
-    parser.add_argument('--final_lr', type=float, default=1e-1)
+    parser.add_argument('--clipvalue', type=float)
+    parser.add_argument('--clipnorm', type=float)
 
     parser.add_argument('--lr_scheduler', default='exponential_decay')
     parser.add_argument('--lr_decay_rate', type=float, default=1e-1)
@@ -80,7 +82,7 @@ def get_model(model_params):
             model_params['enc_hidden_dim'],
             model_params['dec_hidden_dim'],
         )
-    if model_params['model'] == 'transformer': 
+    if model_params['model'] == 'transformer':
         return TransformerEncoderDecoder(
             encoder_vocab_count=model_params['ja_vocab_count'],
             decoder_vocab_count=model_params['en_vocab_count'],
@@ -112,6 +114,8 @@ def get_optimizer_params(args):
     optimizer_params['lr_scheduler'] = lr_scheduler_params
 
     optimizer_params['kwargs'] = {}
+    if args.clipvalue:
+        optimizer_params['kwargs']['clipvalue'] = args.clipvalue
     if args.clipnorm:
         optimizer_params['kwargs']['clipnorm'] = args.clipnorm
 
@@ -186,12 +190,12 @@ def train_encoder_decoder(
                     train_loss_sum += mb_train_loss * mb_count
                     train_data_count += mb_count
 
-                except RuntimeError as error:
+                except Exception as error:
                     logger.error(str(error))
                     mb_train_loss = np.nan
 
                 finally:
-                    pass
+                    clear_session()
 
                 pbar.update(mb_count)
                 pbar.set_postfix(OrderedDict(
@@ -251,6 +255,7 @@ def train_encoder_decoder(
 
 def run():
     set_logger()
+    set_tensorflow_gpu()
     args = get_args()
     set_tensorflow_seed(args.seed)
 

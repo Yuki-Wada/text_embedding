@@ -5,7 +5,6 @@ data/
 dist/
 experiments/
 logs/
-powershell_script/
 venv/
 *egg-info/
 *.code-workspace

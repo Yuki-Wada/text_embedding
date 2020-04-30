@@ -9,6 +9,15 @@ import time
 import logging
 import json
 
+def set_tensorflow_gpu():
+    import tensorflow as tf # pylint: disable=import-outside-toplevel
+    physical_devices = tf.config.list_physical_devices('GPU')
+    try:
+        for physical_device in physical_devices:
+            tf.config.experimental.set_memory_growth(physical_device, True)
+    except:
+        pass
+
 def set_seed(seed: Optional[int] = None):
     if seed is not None:
         import random # pylint: disable=import-outside-toplevel

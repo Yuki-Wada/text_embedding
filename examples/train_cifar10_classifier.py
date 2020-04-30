@@ -1,5 +1,5 @@
 """
-Train a classifier for CIFAR-10 data set by various optimizers.
+Train a classifier for CIFAR-10 data set.
 """
 import os
 import argparse
@@ -10,9 +10,10 @@ import numpy as np
 
 import tensorflow as tf
 
-from mltools.utils import set_tensorflow_seed, set_logger, dump_json, get_date_str
+from mltools.utils import set_tensorflow_gpu, set_tensorflow_seed, set_logger, \
+    dump_json, get_date_str
 from mltools.dataset.cifar10 import Cifar10DataSet, Cifar10DataLoader
-from mltools.model.resnet import ResNet, calc_loss
+from mltools.model.image_classification import ConvNet, ResNet, calc_loss
 from mltools.optimizer.utils import get_keras_optimizer
 from mltools.metric.metric_manager import MerticManager
 
@@ -30,17 +31,19 @@ def get_args():
     parser.add_argument("--output_dir_format", default='.')
     parser.add_argument('--model_name_format', default='epoch-{epoch}.hdf5')
 
+    parser.add_argument('--model', default='conv_net')
+
     parser.add_argument('--optimizer', dest='optim', default='sgd')
     parser.add_argument('--learning_rate', '-lr', dest='lr', type=float, default=1e-3)
     parser.add_argument('--weight_decay', '-wd', type=float, default=0)
     parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--nesterov', action='store_true')
     parser.add_argument('--rho', type=float, default=0.9)
-    parser.add_argument('--clipnorm', type=float, default=1.0)
-    parser.add_argument('--final_lr', type=float, default=1e-1)
+    parser.add_argument('--clipvalue', type=float)
+    parser.add_argument('--clipnorm', type=float)
 
     parser.add_argument('--lr_scheduler', default='exponential_decay')
-    parser.add_argument('--lr_decay_rate', default=1e-1)
+    parser.add_argument('--lr_decay_rate', type=float, default=1e-1)
     parser.add_argument('--lr_decay_epochs', nargs='+', type=float, default=[3, 16, 23, 28])
 
     parser.add_argument('--epochs', help="epoch count", type=int, default=256)
@@ -54,15 +57,23 @@ def get_args():
 
 def get_model_params(args):
     return {
+        'model': args.model,
         'label_count': 10,
         'input_shape': (32, 32, 3),
     }
 
 def get_model(model_params):
-    return ResNet(
-        label_count=model_params['label_count'],
-        input_shape=model_params['input_shape'],
-    )
+    if model_params['model'] == 'conv_net':
+        return ConvNet(
+            label_count=model_params['label_count'],
+            input_shape=model_params['input_shape'],
+        )
+    if model_params['model'] == 'res_net':
+        return ResNet(
+            label_count=model_params['label_count'],
+            input_shape=model_params['input_shape'],
+        )
+    raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
 def get_optimizer_params(args):
     lr_scheduler_params = {}
@@ -82,6 +93,8 @@ def get_optimizer_params(args):
     optimizer_params['lr_scheduler'] = lr_scheduler_params
 
     optimizer_params['kwargs'] = {}
+    if args.clipvalue:
+        optimizer_params['kwargs']['clipvalue'] = args.clipvalue
     if args.clipnorm:
         optimizer_params['kwargs']['clipnorm'] = args.clipnorm
 
@@ -112,6 +125,12 @@ def setup_output_dir(output_dir_path, args, model_params, optimizer_params):
     dump_json(model_params, os.path.join(output_dir_path, 'model.json'))
     dump_json(optimizer_params, os.path.join(output_dir_path, 'optimizer.json'))
 
+def get_cm(trues, preds, label_count):
+    cm = np.zeros((label_count, label_count), dtype=np.int32)
+    for true, pred in zip(trues, preds):
+        cm[true, pred] += 1
+    return cm
+
 def train(
         output_dir_path,
         model_name_format,
@@ -140,6 +159,7 @@ def train(
 
         train_loss_sum = 0
         train_data_count = 0
+        train_cm = np.zeros((10, 10), dtype=np.int32)
         with tqdm(total=len(train_data_loader), desc="Train CNN") as pbar:
             for mb_images, mb_labels in train_data_loader:
                 mb_count = mb_images.shape[0]
@@ -152,7 +172,11 @@ def train(
                     optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
                     mb_train_loss = mb_train_loss.numpy()
+                    mb_preds = np.argmax(mb_probs.numpy(), axis=1)
+                    mb_cm = get_cm(mb_labels, mb_preds, 10)
+
                     train_loss_sum += mb_train_loss * mb_count
+                    train_cm += mb_cm
                     train_data_count += mb_count
 
                 except RuntimeError as error:
@@ -165,27 +189,35 @@ def train(
                 pbar.update(mb_count)
                 pbar.set_postfix(OrderedDict(
                     loss=mb_train_loss,
+                    accu=np.sum(mb_cm * np.eye(10)) / mb_count,
                 ))
 
             train_loss = train_loss_sum / train_data_count
+            train_accuracy = np.sum(train_cm * np.eye(10)) / train_data_count
             logger.info('Train Loss: %f', train_loss)
+            logger.info('Train Accuracy: %f', train_accuracy)
             mertic_manager.register_loss(train_loss, epoch, 'train')
 
         # Valid
         valid_loss_sum = 0.0
         valid_data_count = 0
+        valid_cm = np.zeros((10, 10), dtype=np.int32)
         with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
             for mb_images, mb_labels in valid_data_loader:
                 mb_count = mb_images.shape[0]
 
                 try:
-                    mb_probs = model(mb_images)
+                    mb_probs = model(mb_images, training=False)
                     mb_valid_loss = calc_loss(mb_labels, mb_probs).numpy()
 
+                    mb_preds = np.argmax(mb_probs.numpy(), axis=1)
+                    mb_cm = get_cm(mb_labels, mb_preds, 10)
+
                     valid_loss_sum += mb_valid_loss * mb_count
+                    valid_cm += mb_cm
                     valid_data_count += mb_count
 
-                except RuntimeError as error:
+                except Exception as error:
                     logger.error(str(error))
                     mb_valid_loss = np.nan
 
@@ -195,11 +227,14 @@ def train(
                 pbar.update(mb_count)
                 pbar.set_postfix(OrderedDict(
                     loss=mb_valid_loss,
+                    accu=np.sum(mb_cm * np.eye(10)) / mb_count,
                 ))
 
             valid_loss = valid_loss_sum / valid_data_count
-            mertic_manager.register_loss(valid_loss, epoch, 'valid')
+            valid_accuracy = np.sum(valid_cm * np.eye(10)) / valid_data_count
             logger.info('Valid Loss: %f', valid_loss)
+            logger.info('Valid Accuracy: %f', valid_accuracy)
+            mertic_manager.register_loss(valid_loss, epoch, 'valid')
 
         # Save
         monitored_metric = - valid_loss
@@ -215,6 +250,7 @@ def train(
 
 def run():
     set_logger()
+    set_tensorflow_gpu()
     args = get_args()
     set_tensorflow_seed(args.seed)
 

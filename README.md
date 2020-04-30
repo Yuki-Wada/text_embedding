@@ -77,31 +77,34 @@ TensorFlow は他ツールのバージョン指定が厳しい。依存関係は
 
 - Example: train_encoder_decoder.py
     ```
-    python examples/train_encoder_decoder.py \
+    python "examples/train_encoder_decoder.py" \
         "--train_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/train" \
         "--valid_data" "data/cache/japaneseenglish-bilingual-corpus/BDS/valid" \
+        "--model" "global_attention" \
         "--output_dir_format" "data/model/encoder_decoder/{date}" \
-        "--model_name_format" "epoch-{epoch}.hdf5" \
-        "--model" "naive" \
-        "-lr" "1e-1" \
-        "--momentum" "0.9" \
-        "--nesterov" \
-        "--epochs" "30" \
+        "--model_name_format" "epoch-{epoch}.h5" \
+        "--optimizer" "sgd" "-lr" "1e-1" "--momentum" "0.7" "--nesterov" "--clipnorm" "1e-1" \
+        "--lr_decay_rate" "0.31" \
+        "--lr_decay_epochs" "3" "6" "51" "52" "76" "77" "91" "92" \
+        "--epochs" "100" \
+        "--mb_size" "16" \
         "--seed" "2"
     ```
 
 - Example: train_cifar10_classifier.py
     ```
-    python examples/train_cifar10_classifier.py",
+    python "examples/train_cifar10_classifier.py" \
         "--train_image_npy_path" "data/preprocess/CIFAR-10/train_image.npy" \
         "--train_label_npy_path" "data/preprocess/CIFAR-10/train_label.npy" \
         "--test_image_npy_path" "data/preprocess/CIFAR-10/test_image.npy" \
         "--test_label_npy_path" "data/preprocess/CIFAR-10/test_label.npy" \
         "--output_dir_format" "data/model/cifar10/{date}" \
         "--model_name_format" "epoch-{epoch}.h5" \
-        "--optimizer" "adam" \
-        "-lr" "1e-1" \
-        "--epochs" "30" \
+        "--optimizer" "sgd" "-lr" "1e-1" "--momentum" "0.7" "--nesterov" "--clipnorm" "1e-1" \
+        "--lr_decay_rate" "3.1" \
+        "--lr_decay_epochs" "3" "6" "51" "52" "76" "77" "91" "92" \
+        "--mb_size" "64" \
+        "--epochs" "100" \
         "--seed" "2"
     ```
 
@@ -113,5 +116,6 @@ TensorFlow は他ツールのバージョン指定が厳しい。依存関係は
 # ToDo
 - GPU 対応
 - Google Colab 対応
+- Metrics と学習のスナップショット
 - Pipfile 周りの対応
 - Linux (主に Ubuntu) 対応

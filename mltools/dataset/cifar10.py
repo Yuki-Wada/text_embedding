@@ -12,6 +12,8 @@ class Cifar10DataSet:
     def __init__(self, image_npy_path: str, label_npy_path: str):
         self.images = np.load(image_npy_path).astype(np.float32) / 255
         self.labels = np.load(label_npy_path).astype(np.int32)
+        if len(self.images.shape) < 4:
+            self.images = np.expand_dims(self.images, axis=-1)
         if self.images.shape[0] != self.labels.shape[0]:
             raise ValueError('The number of images should be equal to that of labels.')
 
