@@ -13,8 +13,8 @@ import torch.nn.utils.rnn as rnn_utils
 
 logger = logging.getLogger(__name__)
 
-def get_masks(inputs):
-    return inputs != 0
+def get_masks(inputs, pad_index=0):
+    return inputs != pad_index
 
 def execute_rnn(inputs, masks, rnn_layer, state=None):
     lengths = np.sum(masks.cpu().data.numpy(), axis=0).tolist()
@@ -27,7 +27,7 @@ def execute_rnn(inputs, masks, rnn_layer, state=None):
     return outputs, state
 
 def decoder_loss(true, prob, pad_index=0):
-    masks = get_masks(true)
+    masks = get_masks(true, pad_index)
 
     losses = nn.NLLLoss(reduction='none')(
         nn.LogSoftmax(dim=1)(prob.view(-1, prob.shape[2])), true.reshape(-1))
@@ -76,10 +76,10 @@ class RandomChoiceDecoder:
         return [((decoder_inputs, state), paths, probs)]
 
 class BeamSearchDecoder:
-    def __init__(self, mb_size, seq_len, candidate_count, begin_of_encode_index):
+    def __init__(self, mb_size, seq_len, breadth_len, begin_of_encode_index):
         self.mb_size = mb_size
         self.seq_len = seq_len
-        self.candidate_count = candidate_count
+        self.breadth_len = breadth_len
         self.begin_of_encode_index = begin_of_encode_index
 
         self.seq_index = 0
@@ -95,7 +95,7 @@ class BeamSearchDecoder:
     def decode(self, output_candidates):
         self.seq_index += 1
 
-        idx_count = len(output_candidates) * self.candidate_count
+        idx_count = len(output_candidates) * self.breadth_len
         prob_table = np.zeros((self.mb_size, idx_count))
         index_table = np.zeros((self.mb_size, idx_count)).astype(np.int32)
         for output_idx, ((decoder_outputs, _), _, base_probs) in enumerate(output_candidates):
@@ -103,42 +103,42 @@ class BeamSearchDecoder:
             decoder_probs[:, 0] = 0
             decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
             indices = np.argsort(decoder_probs, axis=1)[:, ::-1]
-            for candidate_idx in range(self.candidate_count):
-                idx = output_idx * self.candidate_count + candidate_idx
+            for breadth_idx in range(self.breadth_len):
+                idx = output_idx * self.breadth_len + breadth_idx
                 for mb_idx in range(self.mb_size):
                     prob_table[mb_idx, idx] = \
-                        base_probs[mb_idx] * decoder_probs[mb_idx, indices[mb_idx, candidate_idx]]
-                    index_table[mb_idx, idx] = indices[mb_idx, candidate_idx]
+                        base_probs[mb_idx] * decoder_probs[mb_idx, indices[mb_idx, breadth_idx]]
+                    index_table[mb_idx, idx] = indices[mb_idx, breadth_idx]
 
         selected_indices = np.argsort(prob_table, axis=1)[:, ::-1]
 
-        input_candidates = []
-        for idx in range(self.candidate_count):
+        next_input_candidates = []
+        for idx in range(self.breadth_len):
             decoder_inputs = np.zeros((self.mb_size,))
             hs, cs = [], []
             probs = np.zeros((self.mb_size,))
             paths = np.zeros((self.mb_size, self.seq_len + 1))
 
             for mb_idx in range(self.mb_size):
-                selected_index = selected_indices[mb_idx, idx]
-                output_index = int(selected_index / self.candidate_count)
+                selected_idx = selected_indices[mb_idx, idx]
+                output_idx = int(selected_idx / self.breadth_len)
 
-                decoder_inputs[mb_idx] = index_table[mb_idx, selected_index]
+                decoder_inputs[mb_idx] = index_table[mb_idx, selected_idx]
 
-                h_n, c_n = output_candidates[output_index][0][1]
+                h_n, c_n = output_candidates[output_idx][0][1]
                 hs.append(h_n[:, mb_idx:mb_idx+1])
                 cs.append(c_n[:, mb_idx:mb_idx+1])
 
-                paths[mb_idx] = output_candidates[output_index][1][mb_idx]
-                paths[mb_idx, self.seq_index] = index_table[mb_idx, selected_index]
+                paths[mb_idx] = output_candidates[output_idx][1][mb_idx]
+                paths[mb_idx, self.seq_index] = index_table[mb_idx, selected_idx]
 
-                probs[mb_idx] = prob_table[mb_idx, selected_index]
+                probs[mb_idx] = prob_table[mb_idx, selected_idx]
 
             state = (torch.cat(hs, dim=1), torch.cat(cs, dim=1))
 
-            input_candidates.append(((decoder_inputs, state), paths, probs))
+            next_input_candidates.append(((decoder_inputs, state), paths, probs))
 
-        return input_candidates
+        return next_input_candidates
 
 def get_inference_decoder(decoding_params, mb_size):
     begin_of_encode_index = decoding_params['begin_of_encode_index']

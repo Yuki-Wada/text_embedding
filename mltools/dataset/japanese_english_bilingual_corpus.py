@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class BilingualPreprocessor:
     def __init__(self, is_training=False):
-        self.ja_dictionary = Dictionary([['<PAD>'], ['<BOS>'], ['<UNK>']])
+        self.ja_dictionary = Dictionary(
+            [['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.en_dictionary = Dictionary(
             [['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.is_training = is_training
@@ -25,6 +26,10 @@ class BilingualPreprocessor:
             self.en_dictionary.add_documents(texts)
 
     @property
+    def ja_eos_index(self):
+        return self.ja_dictionary.token2id['<EOS>']
+
+    @property
     def en_eos_index(self):
         return self.en_dictionary.token2id['<EOS>']
 
@@ -35,6 +40,10 @@ class BilingualPreprocessor:
     @property
     def en_unknown_word_index(self):
         return self.en_dictionary.token2id['<UNK>']
+
+    @property
+    def ja_begin_of_encode_index(self):
+        return self.ja_dictionary.token2id['<BeginOfEncode>']
 
     @property
     def en_begin_of_encode_index(self):
@@ -148,6 +157,10 @@ class BilingualDataLoader:
     @property
     def en_vocab_count(self):
         return self.data_set.en_vocab_count
+
+    @property
+    def iter_count(self):
+        return int((len(self) + self.mb_size - 1) / self.mb_size)
 
     def __len__(self) -> int:
         return len(self.data_set)

@@ -165,6 +165,10 @@ class TanakaCorpusDataLoader:
     def en_vocab_count(self):
         return self.data_set.en_vocab_count
 
+    @property
+    def iter_count(self):
+        return int((len(self) + self.mb_size - 1) / self.mb_size)
+
     def __len__(self) -> int:
         return len(self.data_set)
 

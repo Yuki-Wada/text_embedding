@@ -135,7 +135,7 @@ def inference_encoder_decoder(
                 predicted_output_texts += tokenize_indices(
                     mb_predicted, preprocessor.ja_dictionary, preprocessor.ja_eos_index)
 
-            except Exception as error:
+            except RuntimeError as error:
                 logger.error(str(error))
 
             finally:

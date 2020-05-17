@@ -21,13 +21,49 @@ class ExponentialDecayLRScheduler:
 
         return optimizer
 
-def get_lr_scheduler(scheduler_params):
+def get_keras_lr_scheduler(scheduler_params):
     if scheduler_params['type'] == 'constant':
         return ConstantLRScheduler(**scheduler_params['kwargs'])
     if scheduler_params['type'] == 'exponential_decay':
         return ExponentialDecayLRScheduler(**scheduler_params['kwargs'])
     raise ValueError(
         'The learning rate scheduler {} is not supported.'.format(scheduler_params['type']))
+
+def get_keras_optimizer(optimizer_params: Dict):
+    from tensorflow.keras import optimizers #pylint: disable=import-error
+
+    if optimizer_params['type'] == 'sgd':
+        return optimizers.SGD(**optimizer_params['kwargs'])
+    if optimizer_params['type'] == 'adadelta':
+        return optimizers.Adadelta(**optimizer_params['kwargs'])
+    if optimizer_params['type'] == 'adam':
+        return optimizers.Adam(**optimizer_params['kwargs'])
+
+    raise ValueError('The optimizer {} is not supported.'.format(optimizer_params['type']))
+
+def get_torch_lr_scheduler(optimizer, lr_scheduler_params):
+    from torch.optim.lr_scheduler import LambdaLR, MultiStepLR, CosineAnnealingLR, CyclicLR
+
+    if lr_scheduler_params['type'] == 'constant':
+        return LambdaLR(optimizer, lr_lambda=lambda epoch: 1)
+
+    if lr_scheduler_params['type'] == 'multi_step':
+        return MultiStepLR(optimizer, **lr_scheduler_params['kwargs'])
+
+    if lr_scheduler_params['type'] == 'cyclic':
+        return CyclicLR(
+            optimizer, base_lr=0.001, max_lr=0.1,
+            step_size_up=50, step_size_down=100,
+            mode='triangular')
+
+    if lr_scheduler_params['type'] == 'cosine_annealing':
+        return CosineAnnealingLR(optimizer, **lr_scheduler_params['kwargs'])
+
+    if lr_scheduler_params['type'] == 'experiment':
+        def get_lr_factor(epoch):
+            return 0.95 ** epoch
+
+        return LambdaLR(optimizer, lr_lambda=get_lr_factor)
 
 def get_torch_optimizer(model_params, optimizer_params: Dict):
     import torch.optim as optim
@@ -52,18 +88,5 @@ def get_torch_optimizer(model_params, optimizer_params: Dict):
             model_params,
             optimizer_params['kwargs']
         )
-
-    raise ValueError('The optimizer {} is not supported.'.format(optimizer_params['type']))
-
-def get_keras_optimizer(optimizer_params: Dict):
-    from tensorflow.keras import optimizers
-
-    lr_scheduler = get_lr_scheduler(optimizer_params['lr_scheduler'])
-    if optimizer_params['type'] == 'sgd':
-        return optimizers.SGD(**optimizer_params['kwargs']), lr_scheduler
-    if optimizer_params['type'] == 'adadelta':
-        return optimizers.Adadelta(**optimizer_params['kwargs']), lr_scheduler
-    if optimizer_params['type'] == 'adam':
-        return optimizers.Adam(**optimizer_params['kwargs']), lr_scheduler
 
     raise ValueError('The optimizer {} is not supported.'.format(optimizer_params['type']))

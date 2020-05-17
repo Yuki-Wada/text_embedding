@@ -29,6 +29,10 @@ class Cifar10DataLoader:
         self.data_set = data_set
         self.mb_size = mb_size
 
+    @property
+    def iter_count(self):
+        return int((len(self) + self.mb_size - 1) / self.mb_size)
+
     def __len__(self) -> int:
         return len(self.data_set)
 

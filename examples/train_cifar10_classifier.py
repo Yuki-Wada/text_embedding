@@ -13,7 +13,7 @@ import torch
 from mltools.utils import set_seed, set_logger, dump_json, get_date_str
 from mltools.dataset.cifar10 import Cifar10DataSet, Cifar10DataLoader
 from mltools.model.image_classification import ResNet, calc_loss
-from mltools.optimizer.utils import get_torch_optimizer
+from mltools.optimizer.utils import get_torch_optimizer, get_torch_lr_scheduler
 from mltools.metric.metric_manager import MetricManager
 
 logger = logging.getLogger(__name__)
@@ -41,9 +41,10 @@ def get_args():
     parser.add_argument('--clipvalue', type=float)
     parser.add_argument('--clipnorm', type=float)
 
-    parser.add_argument('--lr_scheduler', default='exponential_decay')
-    parser.add_argument('--lr_decay_rate', type=float, default=1e-1)
-    parser.add_argument('--lr_decay_epochs', nargs='+', type=float, default=[3, 16, 23, 28])
+    parser.add_argument('--lr_scheduler', default='constant')
+    parser.add_argument('--lr_decay', type=float, default=1e-1)
+    parser.add_argument('--lr_steps', nargs='+', type=float, default=[0.1, 0.5, 0.75, 0.9])
+    parser.add_argument('--min_lr', type=float, default=1e-5)
 
     parser.add_argument('--epochs', help="epoch count", type=int, default=256)
     parser.add_argument('--mb_size', help="minibatch size", type=int, default=64)
@@ -70,21 +71,8 @@ def get_model(model_params):
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
 def get_optimizer_params(args):
-    lr_scheduler_params = {}
-    lr_scheduler_params['type'] = args.lr_scheduler
-    lr_scheduler_params['kwargs'] = {}
-    if args.lr_scheduler == 'constant':
-        pass
-    if args.lr_scheduler == 'exponential_decay':
-        lr_scheduler_params['kwargs']['decay_rate'] = args.lr_decay_rate
-        lr_scheduler_params['kwargs']['decay_epochs'] = args.lr_decay_epochs
-    else:
-        raise ValueError(
-            'The learning rate scheduler {} is not supported.'.format(args.lr_scheduler))
-
     optimizer_params = {}
     optimizer_params['type'] = args.optim
-    optimizer_params['lr_scheduler'] = lr_scheduler_params
 
     optimizer_params['kwargs'] = {}
     if args.clipvalue:
@@ -113,6 +101,39 @@ def get_optimizer_params(args):
 
     raise ValueError('The optimizer {} is not supported.'.format(args.optimizer))
 
+def get_lr_scheduler_params(args, train_data_loader):
+    lr_scheduler_params = {}
+    lr_scheduler_params['type'] = args.lr_scheduler
+    lr_scheduler_params['kwargs'] = {}
+
+    if args.lr_scheduler == 'constant':
+        return lr_scheduler_params
+
+    if args.lr_scheduler == 'multi_step':
+        lr_scheduler_params['kwargs']['milestones'] = [
+            int(args.epochs * step) for step in args.lr_steps
+        ]
+        lr_scheduler_params['kwargs']['gamma'] = args.lr_decay
+
+        return lr_scheduler_params
+
+    if args.lr_scheduler == 'cyclic':
+        lr_scheduler_params['kwargs']['base_lr'] = args.min_lr
+        lr_scheduler_params['kwargs']['max_lr'] = args.lr
+        lr_scheduler_params['kwargs']['step_size_up'] = train_data_loader.iter_count
+        lr_scheduler_params['kwargs']['mode'] = 'triangular'
+
+        return lr_scheduler_params
+
+    if args.lr_scheduler == 'cosine_annealing':
+        lr_scheduler_params['kwargs']['T_max'] = train_data_loader.iter_count * 2
+        lr_scheduler_params['kwargs']['eta_min'] = args.min_lr
+
+        return lr_scheduler_params
+
+    raise ValueError(
+        'The learning rate scheduler {} is not supported.'.format(args.lr_scheduler))
+
 def setup_output_dir(output_dir_path, args, model_params, optimizer_params):
     os.makedirs(output_dir_path, exist_ok=True)
     dump_json(args, os.path.join(output_dir_path, 'args.json'))
@@ -126,8 +147,6 @@ def get_cm(trues, preds, label_count):
     return cm
 
 def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manager, epoch):
-    # lr_scheduler.set_lr(optimizer, epoch + 1)
-
     model.train()
     device = model.device
 
@@ -156,7 +175,7 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
                 train_cm += mb_cm
                 train_data_count += mb_count
 
-            except Exception as error:
+            except RuntimeError as error:
                 logger.error(str(error))
                 mb_train_loss = np.nan
                 mb_cm = np.zeros((10, 10))
@@ -169,6 +188,7 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
                 loss=mb_train_loss,
                 accu=np.sum(mb_cm * np.eye(10)) / mb_count,
             ))
+            lr_scheduler.step()
 
         train_loss = train_loss_sum / train_data_count
         train_accuracy = np.sum(train_cm * np.eye(10)) / train_data_count
@@ -201,7 +221,7 @@ def evaluate_model(model, valid_data_loader, metric_manager, epoch):
                 valid_cm += mb_cm
                 valid_data_count += mb_count
 
-            except Exception as error:
+            except RuntimeError as error:
                 logger.error(str(error))
                 mb_valid_loss = np.nan
                 mb_cm = np.zeros((10, 10))
@@ -266,6 +286,7 @@ def run():
 
     model_params = get_model_params(args)
     optimizer_params = get_optimizer_params(args)
+    lr_scheduler_params = get_lr_scheduler_params(args, train_data_loader)
 
     output_dir_path = args.output_dir_format.format(date=get_date_str())
     setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
@@ -273,13 +294,14 @@ def run():
     # Set up Model and Optimizer
     model = get_model(model_params)
     optimizer = get_torch_optimizer(model.parameters(), optimizer_params)
+    lr_scheduler = get_torch_lr_scheduler(optimizer, lr_scheduler_params)
 
     train_loop(
         train_data_loader=train_data_loader,
         valid_data_loader=test_data_loader,
         model=model,
         optimizer=optimizer,
-        lr_scheduler=None,
+        lr_scheduler=lr_scheduler,
         epochs=args.epochs,
         output_dir_path=output_dir_path,
         model_name_format=args.model_name_format,
