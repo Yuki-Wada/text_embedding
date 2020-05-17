@@ -11,7 +11,7 @@ from mltools.utils import dump_json
 
 logger = logging.getLogger(__name__)
 
-class MerticManager:
+class MetricManager:
     def __init__(self, output_dir_path, epoch_count):
         self.epoch_scores = [{'epoch': epoch + 1} for epoch in range(epoch_count)]
         self.output_dir_path = output_dir_path

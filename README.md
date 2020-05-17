@@ -1,8 +1,8 @@
 # インストール手順
 1. Python 3.7.6 64bit
 1. MeCab v0.996
-1. CUDA 10.1
-1. cuDNN 7.6
+1. CUDA 10.2
+1. pipenv
 
 ## MeCab
 64 bit 版 Python を使うため、あらかじめ 64 bit 版 MeCab をインストールする必要がある。
@@ -16,12 +16,16 @@ https://github.com/ikegami-yukino/mecab/releases/tag/v0.996
 以下の URL からソースコードをダウンロードしコンパイルする。  
 https://taku910.github.io/mecab/
 
-## CUDA, cuDNN
+## CUDA
+- CUDA 10.2
+
+## pipenv
 GPU で TensorFlow を使用するために必要。  
 TensorFlow は他ツールのバージョン指定が厳しい。依存関係は以下の通り。
-- Python 3.5-3.7
-- CUDA 10.1
-- cuDNN 7.6
+```
+pip install pipenv
+pipenv install
+```
 
 # 使い方
 ## 実行方法
@@ -114,8 +118,9 @@ TensorFlow は他ツールのバージョン指定が厳しい。依存関係は
     ```
 
 # ToDo
-- GPU 対応
-- Google Colab 対応
-- Metrics と学習のスナップショット
+- Learning Rate Scheduler
+- Data Augumentation
+- Metrics
+- 学習のスナップショット
 - Pipfile 周りの対応
 - Linux (主に Ubuntu) 対応

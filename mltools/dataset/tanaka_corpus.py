@@ -1,5 +1,5 @@
 """
-Define a Data Set Class to Preprocess Japanese-English Bilingual Corpus.
+Define a Data Set Class to Preprocess Tanaka Corpus.
 """
 from typing import List
 import logging
@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class BilingualPreprocessor:
     def __init__(self, is_training=False):
-        self.ja_dictionary = Dictionary([['<PAD>'], ['<BOS>'], ['<UNK>']])
+        self.ja_dictionary = Dictionary(
+            [['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.en_dictionary = Dictionary(
             [['<PAD>'], ['<BeginOfEncode>'], ['<BOS>'], ['<EOS>'], ['<UNK>']])
         self.is_training = is_training
@@ -25,6 +26,10 @@ class BilingualPreprocessor:
             self.en_dictionary.add_documents(texts)
 
     @property
+    def ja_eos_index(self):
+        return self.ja_dictionary.token2id['<EOS>']
+
+    @property
     def en_eos_index(self):
         return self.en_dictionary.token2id['<EOS>']
 
@@ -35,6 +40,10 @@ class BilingualPreprocessor:
     @property
     def en_unknown_word_index(self):
         return self.en_dictionary.token2id['<UNK>']
+
+    @property
+    def ja_begin_of_encode_index(self):
+        return self.ja_dictionary.token2id['<BeginOfEncode>']
 
     @property
     def en_begin_of_encode_index(self):
@@ -66,7 +75,7 @@ class BilingualPreprocessor:
 
         return preprocessor
 
-class BilingualDataSet:
+class TanakaCorpusDataSet:
     def __init__(
             self,
             sort_by_length: bool = True,
@@ -85,19 +94,26 @@ class BilingualDataSet:
         self.data = []
 
     def input_data(self, file_paths):
-        for file_path in file_paths:
-            with open(file_path, 'rb') as _:
-                data = dill.load(_)
-            data = [
-                datum for datum in data
-                if len(datum['japanese']) > 5 and len(datum['english']) > 5]
-            ja_texts = [pair['japanese'] for pair in data]
-            en_texts = [pair['english'] for pair in data]
-            self.preprocessor.register_ja_texts(ja_texts)
-            self.preprocessor.register_en_texts(en_texts)
-            self.data += data
-            if self.sort_by_length:
-                self.data = sorted(self.data, key=lambda x: len(x['english']))
+        ja_file_path, en_file_path = file_paths
+
+        with open(ja_file_path, 'r', encoding='utf8') as f:
+            ja_texts = [line.split() for line in f.readlines()]
+        with open(en_file_path, 'r', encoding='utf8') as f:
+            en_texts = [line.split() for line in f.readlines()]
+
+        data = [
+            {
+                'japanese': ja_text,
+                'english': en_text,
+            } for ja_text, en_text in zip(ja_texts, en_texts)
+            if len(ja_text) > 5 and len(en_text) > 5
+        ]
+        self.data += data
+        self.preprocessor.register_ja_texts([datum['japanese'] for datum in data])
+        self.preprocessor.register_en_texts([datum['english'] for datum in data])
+
+        if self.sort_by_length:
+            self.data = sorted(self.data, key=lambda x: len(x['english']))
 
     def __getitem__(self, index):
         return self.data[index]['japanese'], self.data[index]['english']
@@ -125,8 +141,8 @@ class BilingualDataSet:
     def doc2idx_en(self, texts):
         return self.preprocessor.doc2idx_en(texts)
 
-class BilingualDataLoader:
-    def __init__(self, data_set: BilingualDataSet, mb_size: int, do_shuffle: bool = True):
+class TanakaCorpusDataLoader:
+    def __init__(self, data_set: TanakaCorpusDataSet, mb_size: int, do_shuffle: bool = True):
         self.data_set = data_set
         self.mb_size = mb_size
         self.do_shuffle = do_shuffle
@@ -172,16 +188,16 @@ class BilingualDataLoader:
             en_texts = []
             for index in indices[begin_index : begin_index + self.mb_size]:
                 ja_text, en_text = self.data_set[index]
-                en_text = ['<BeginOfEncode>'] + en_text + ['<EOS>']
+                ja_text = ['<BeginOfEncode>'] + ja_text + ['<EOS>']
                 ja_texts.append(self.doc2idx_ja(ja_text))
                 en_texts.append(self.doc2idx_en(en_text))
 
             ja_text_array = self.texts_to_array(ja_texts)
             en_text_array = self.texts_to_array(en_texts)
 
-            yield ja_text_array, en_text_array
+            yield en_text_array, ja_text_array
 
         ja_text_array = self.texts_to_array(ja_texts)
         en_text_array = self.texts_to_array(en_texts)
 
-        yield ja_text_array, en_text_array
+        yield en_text_array, ja_text_array

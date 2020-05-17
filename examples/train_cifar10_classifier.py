@@ -8,14 +8,13 @@ from collections import OrderedDict
 from tqdm import tqdm
 import numpy as np
 
-import tensorflow as tf
+import torch
 
-from mltools.utils import set_tensorflow_gpu, set_tensorflow_seed, set_logger, \
-    dump_json, get_date_str
+from mltools.utils import set_seed, set_logger, dump_json, get_date_str
 from mltools.dataset.cifar10 import Cifar10DataSet, Cifar10DataLoader
-from mltools.model.image_classification import ConvNet, ResNet, calc_loss
-from mltools.optimizer.utils import get_keras_optimizer
-from mltools.metric.metric_manager import MerticManager
+from mltools.model.image_classification import ResNet, calc_loss
+from mltools.optimizer.utils import get_torch_optimizer
+from mltools.metric.metric_manager import MetricManager
 
 logger = logging.getLogger(__name__)
 
@@ -59,19 +58,14 @@ def get_model_params(args):
     return {
         'model': args.model,
         'label_count': 10,
-        'input_shape': (32, 32, 3),
+        'gpu_id': args.gpu_id,
     }
 
 def get_model(model_params):
-    if model_params['model'] == 'conv_net':
-        return ConvNet(
-            label_count=model_params['label_count'],
-            input_shape=model_params['input_shape'],
-        )
     if model_params['model'] == 'res_net':
         return ResNet(
             label_count=model_params['label_count'],
-            input_shape=model_params['input_shape'],
+            gpu_id=model_params['gpu_id'],
         )
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
@@ -131,110 +125,122 @@ def get_cm(trues, preds, label_count):
         cm[true, pred] += 1
     return cm
 
-def train(
-        output_dir_path,
-        model_name_format,
+def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manager, epoch):
+    # lr_scheduler.set_lr(optimizer, epoch + 1)
+
+    model.train()
+    device = model.device
+
+    train_loss_sum = 0
+    train_data_count = 0
+    train_cm = np.zeros((10, 10), dtype=np.int32)
+    with tqdm(total=len(train_data_loader), desc="Train CNN") as pbar:
+        for mb_images, mb_labels in train_data_loader:
+            mb_count = mb_images.shape[0]
+
+            try:
+                mb_images = torch.Tensor(mb_images).to(device)
+                mb_labels = torch.LongTensor(mb_labels).to(device)
+
+                model.zero_grad()
+                mb_probs = model(mb_images)
+                mb_train_loss = calc_loss(mb_labels, mb_probs)
+                mb_train_loss.backward()
+                optimizer.step()
+
+                mb_train_loss = mb_train_loss.cpu().data.numpy()
+                mb_preds = np.argmax(mb_probs.cpu().data.numpy(), axis=1)
+                mb_cm = get_cm(mb_labels, mb_preds, 10)
+
+                train_loss_sum += mb_train_loss * mb_count
+                train_cm += mb_cm
+                train_data_count += mb_count
+
+            except Exception as error:
+                logger.error(str(error))
+                mb_train_loss = np.nan
+                mb_cm = np.zeros((10, 10))
+
+            finally:
+                torch.cuda.empty_cache()
+
+            pbar.update(mb_count)
+            pbar.set_postfix(OrderedDict(
+                loss=mb_train_loss,
+                accu=np.sum(mb_cm * np.eye(10)) / mb_count,
+            ))
+
+        train_loss = train_loss_sum / train_data_count
+        train_accuracy = np.sum(train_cm * np.eye(10)) / train_data_count
+        logger.info('Train Loss: %f', train_loss)
+        logger.info('Train Accuracy: %f', train_accuracy)
+        metric_manager.register_loss(train_loss, epoch, 'train')
+
+def evaluate_model(model, valid_data_loader, metric_manager, epoch):
+    model.eval()
+    device = model.device
+
+    valid_loss_sum = 0.0
+    valid_data_count = 0
+    valid_cm = np.zeros((10, 10), dtype=np.int32)
+    with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
+        for mb_images, mb_labels in valid_data_loader:
+            mb_count = mb_images.shape[0]
+
+            try:
+                mb_images = torch.Tensor(mb_images).to(device)
+                mb_labels = torch.LongTensor(mb_labels).to(device)
+
+                mb_probs = model(mb_images)
+                mb_valid_loss = calc_loss(mb_labels, mb_probs).cpu().data.numpy()
+
+                mb_preds = np.argmax(mb_probs.cpu().data.numpy(), axis=1)
+                mb_cm = get_cm(mb_labels, mb_preds, 10)
+
+                valid_loss_sum += mb_valid_loss * mb_count
+                valid_cm += mb_cm
+                valid_data_count += mb_count
+
+            except Exception as error:
+                logger.error(str(error))
+                mb_valid_loss = np.nan
+                mb_cm = np.zeros((10, 10))
+
+            finally:
+                torch.cuda.empty_cache()
+
+            pbar.update(mb_count)
+            pbar.set_postfix(OrderedDict(
+                loss=mb_valid_loss,
+                accu=np.sum(mb_cm * np.eye(10)) / mb_count,
+            ))
+
+        valid_loss = valid_loss_sum / valid_data_count
+        valid_accuracy = np.sum(valid_cm * np.eye(10)) / valid_data_count
+        logger.info('Valid Loss: %f', valid_loss)
+        logger.info('Valid Accuracy: %f', valid_accuracy)
+        metric_manager.register_loss(valid_loss, epoch, 'valid')
+
+    return valid_loss
+
+def train_loop(
         train_data_loader,
         valid_data_loader,
-        model_params,
-        optimizer_params,
+        model,
+        optimizer,
+        lr_scheduler,
         epochs,
+        output_dir_path,
+        model_name_format,
         best_monitored_metric=None,
-        seed=None,
     ):
-    set_tensorflow_seed(seed)
-
-    # Set up Model and Optimizer
-    model = get_model(model_params)
-    model.summary()
-    optimizer, lr_scheduler = get_keras_optimizer(optimizer_params)
-
     # Train Model
-    mertic_manager = MerticManager(output_dir_path, epochs)
+    metric_manager = MetricManager(output_dir_path, epochs)
     for epoch in range(epochs):
         logger.info('Epoch: %d', epoch + 1)
 
-        # Train
-        lr_scheduler.set_lr(optimizer, epoch + 1)
-
-        train_loss_sum = 0
-        train_data_count = 0
-        train_cm = np.zeros((10, 10), dtype=np.int32)
-        with tqdm(total=len(train_data_loader), desc="Train CNN") as pbar:
-            for mb_images, mb_labels in train_data_loader:
-                mb_count = mb_images.shape[0]
-                try:
-                    with tf.GradientTape() as tape:
-                        mb_probs = model(mb_images, training=True)
-                        mb_train_loss = calc_loss(mb_labels, mb_probs)
-
-                    grads = tape.gradient(mb_train_loss, model.trainable_variables)
-                    optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
-                    mb_train_loss = mb_train_loss.numpy()
-                    mb_preds = np.argmax(mb_probs.numpy(), axis=1)
-                    mb_cm = get_cm(mb_labels, mb_preds, 10)
-
-                    train_loss_sum += mb_train_loss * mb_count
-                    train_cm += mb_cm
-                    train_data_count += mb_count
-
-                except RuntimeError as error:
-                    logger.error(str(error))
-                    mb_train_loss = np.nan
-
-                finally:
-                    pass
-
-                pbar.update(mb_count)
-                pbar.set_postfix(OrderedDict(
-                    loss=mb_train_loss,
-                    accu=np.sum(mb_cm * np.eye(10)) / mb_count,
-                ))
-
-            train_loss = train_loss_sum / train_data_count
-            train_accuracy = np.sum(train_cm * np.eye(10)) / train_data_count
-            logger.info('Train Loss: %f', train_loss)
-            logger.info('Train Accuracy: %f', train_accuracy)
-            mertic_manager.register_loss(train_loss, epoch, 'train')
-
-        # Valid
-        valid_loss_sum = 0.0
-        valid_data_count = 0
-        valid_cm = np.zeros((10, 10), dtype=np.int32)
-        with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
-            for mb_images, mb_labels in valid_data_loader:
-                mb_count = mb_images.shape[0]
-
-                try:
-                    mb_probs = model(mb_images, training=False)
-                    mb_valid_loss = calc_loss(mb_labels, mb_probs).numpy()
-
-                    mb_preds = np.argmax(mb_probs.numpy(), axis=1)
-                    mb_cm = get_cm(mb_labels, mb_preds, 10)
-
-                    valid_loss_sum += mb_valid_loss * mb_count
-                    valid_cm += mb_cm
-                    valid_data_count += mb_count
-
-                except Exception as error:
-                    logger.error(str(error))
-                    mb_valid_loss = np.nan
-
-                finally:
-                    pass
-
-                pbar.update(mb_count)
-                pbar.set_postfix(OrderedDict(
-                    loss=mb_valid_loss,
-                    accu=np.sum(mb_cm * np.eye(10)) / mb_count,
-                ))
-
-            valid_loss = valid_loss_sum / valid_data_count
-            valid_accuracy = np.sum(valid_cm * np.eye(10)) / valid_data_count
-            logger.info('Valid Loss: %f', valid_loss)
-            logger.info('Valid Accuracy: %f', valid_accuracy)
-            mertic_manager.register_loss(valid_loss, epoch, 'valid')
+        train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manager, epoch)
+        valid_loss = evaluate_model(model, valid_data_loader, metric_manager, epoch)
 
         # Save
         monitored_metric = - valid_loss
@@ -244,15 +250,14 @@ def train(
             if model_name_format:
                 model_name = model_name_format.format(epoch=epoch + 1)
                 logger.info('Save the model as %s', model_name)
-                model.save_weights(os.path.join(output_dir_path, model_name))
+                torch.save(model.state_dict(), os.path.join(output_dir_path, model_name))
 
     return best_monitored_metric
 
 def run():
     set_logger()
-    set_tensorflow_gpu()
     args = get_args()
-    set_tensorflow_seed(args.seed)
+    set_seed(args.seed)
 
     train_data_set = Cifar10DataSet(args.train_image_npy_path, args.train_label_npy_path)
     train_data_loader = Cifar10DataLoader(train_data_set, args.mb_size)
@@ -265,15 +270,19 @@ def run():
     output_dir_path = args.output_dir_format.format(date=get_date_str())
     setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
 
-    train(
-        output_dir_path=output_dir_path,
-        model_name_format=args.model_name_format,
+    # Set up Model and Optimizer
+    model = get_model(model_params)
+    optimizer = get_torch_optimizer(model.parameters(), optimizer_params)
+
+    train_loop(
         train_data_loader=train_data_loader,
         valid_data_loader=test_data_loader,
-        model_params=model_params,
-        optimizer_params=optimizer_params,
+        model=model,
+        optimizer=optimizer,
+        lr_scheduler=None,
         epochs=args.epochs,
-        seed=args.seed,
+        output_dir_path=output_dir_path,
+        model_name_format=args.model_name_format,
     )
 
 if __name__ == '__main__':

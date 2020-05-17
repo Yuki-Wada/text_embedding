@@ -40,4 +40,6 @@ class Cifar10DataLoader:
             mb_images = self.data_set.images[indices[i : i + self.mb_size]]
             mb_labels = self.data_set.labels[indices[i : i + self.mb_size]]
 
+            mb_images = mb_images.transpose(0, 3, 1, 2)
+
             yield mb_images, mb_labels

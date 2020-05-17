@@ -29,6 +29,7 @@ class SingleDotProductAttention:
 
     def __call__(self, query, key, value, key_mask=None):
         scores = backend.batch_dot(query, backend.permute_dimensions(key, (0, 2, 1)))
+        scores /= key.shape[2] ** 0.5
         if key_mask is not None:
             scores -= backend.expand_dims(
                 1 - backend.cast(key_mask, dtype='float32'), axis=1) * 1e18

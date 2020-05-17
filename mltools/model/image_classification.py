@@ -1,175 +1,143 @@
 """
-Define image classification models.
+Define image classification PyTorch models.
 """
-from typing import Tuple
-import tensorflow as tf
-from tensorflow.keras import Model, layers, backend
+import logging
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-class ConvUnit(Model):
-    def __init__(self, filters, kernel_size, activation='relu', padding='same', **kwargs):
+logger = logging.getLogger(__name__)
+
+def get_activation(activation):
+    if activation == 'relu':
+        return F.relu
+    if activation == 'linear':
+        return lambda x: x
+
+def calc_loss(true, prob):
+    return nn.NLLLoss()(nn.LogSoftmax(dim=1)(prob), true)
+
+class ConvUnit(nn.Module):
+    def __init__(
+            self, in_channels, out_channels, kernel_size,
+            activation='relu', padding=0, **kwargs,
+        ):
         super(ConvUnit, self).__init__()
 
-        self.conv = layers.Conv2D(filters, kernel_size, padding=padding, **kwargs)
-        self.bn = layers.BatchNormalization()
-        self.activation = layers.Activation(activation)
+        self.conv = nn.Conv2d(
+            in_channels, out_channels, kernel_size,
+            padding=padding, **kwargs)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.activation = get_activation(activation)
 
-    def call(self, x):
+    def forward(self, x):
         h = self.conv(x)
         h = self.bn(h)
         h = self.activation(h)
 
         return h
 
-class ShakeShakeUnit(Model):
-    def __init__(self, filters, kernel_size, activation='relu', padding='same', **kwargs):
-        super(ShakeShakeUnit, self).__init__()
-
-        self.conv1 = ConvUnit(filters, kernel_size, activation='linear', padding=padding, **kwargs)
-        self.conv2 = ConvUnit(filters, kernel_size, activation='linear', padding=padding, **kwargs)
-        self.activation = layers.Activation(activation)
-
-    def call(self, x):
-        x1 = self.conv1(x)
-        x2 = self.conv2(x)
-
-        # create alpha and beta
-        batch_size = backend.shape(x1)[0]
-        alpha = backend.random_uniform((batch_size, 1, 1, 1))
-        beta = backend.random_uniform((batch_size, 1, 1, 1))
-
-        # shake-shake during training phase
-        def x_shake():
-            return beta * x1 + (1 - beta) * x2 + backend.stop_gradient((alpha - beta) * x1 + (beta - alpha) * x2)
-
-        # even-even during testing phase
-        def x_even():
-            return 0.5 * x1 + 0.5 * x2
-        return self.activation(backend.in_train_phase(x_shake, x_even))
-
-class ConvBlock(Model):
-    def __init__(self, filters, kernel_sizes, **kwargs):
-        super(ConvBlock, self).__init__()
-
-        self.units = []
-        for kernel_size in kernel_sizes:
-            self.units.append(ConvUnit(filters, kernel_size, **kwargs))
-
-        self.dropout = layers.Dropout(0.25)
-
-    def call(self, x):
-        h = x
-        for layer in self.units:
-            h = layer(h)
-
-        h = self.dropout(h)
-
-        return h
-
-class ConvNet(Model):
-    def __init__(self, label_count: int, input_shape: Tuple[int, int, int]):
-        super(ConvNet, self).__init__()
-
-        params = [
-            (64, [1, 3, 5]),
-            (128, [1, 3, 5]),
-            (256, [1, 3, 5]),
-        ]
-
-        self.blocks = []
-        for i, (filters, kernel_sizes) in enumerate(params):
-            self.blocks.append(
-                ConvBlock(filters, kernel_sizes, padding='valid', kernel_initializer='he_normal'))
-            if i == 0:
-                self.blocks.append(layers.MaxPool2D((2, 2)))
-
-        self.flatten = layers.Flatten()
-        self.fc = layers.Dense(label_count)
-
-        self(layers.Input(shape=input_shape))
-
-    def call(self, x):
-        h = x
-        for block in self.blocks:
-            h = block(h)
-
-        h = self.flatten(h)
-        h = self.fc(h)
-
-        return h
-
-class ResUnit(Model):
-    def __init__(self, filters, kernel_size, **kwargs):
+class ResUnit(nn.Module):
+    def __init__(
+            self, in_channels, out_channels, kernel_size,
+            activation='relu', padding=0, **kwargs):
         super(ResUnit, self).__init__()
 
-        self.down_sample = ConvUnit(filters, 1)
-        self.conv_1 = ConvUnit(filters, kernel_size, **kwargs)
-        self.conv_2 = ConvUnit(filters, kernel_size, activation='linear', **kwargs)
-        self.activation = layers.Activation('relu')
+        if in_channels != out_channels:
+            self.down_sample = ConvUnit(in_channels, out_channels, 1)
+        else:
+            self.down_sample = None
 
-    def call(self, x):
-        h = self.conv_1(x)
-        h = self.conv_2(h)
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size,
+            padding=padding, **kwargs)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.activation1 = get_activation(activation)
 
-        if x.shape[3] != h.shape[3]:
+        self.conv2 = nn.Conv2d(
+            out_channels, out_channels, kernel_size,
+            padding=padding, **kwargs)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.activation2 = get_activation(activation)
+
+    def forward(self, x):
+        h = x
+
+        if self.down_sample is not None:
             h0 = self.down_sample(x)
         else:
             h0 = x
-        h = h + h0
 
-        h = self.activation(h)
+        h = self.conv1(h)
+        h = self.bn1(h)
+        h = self.activation1(h)
+
+        h = self.conv2(h)
+        h = self.bn2(h)
+        h = h + h0
+        h = self.activation2(h)
 
         return h
 
-class ResBlock(Model):
-    def __init__(self, filters, kernel_sizes, **kwargs):
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_sizes, **kwargs):
         super(ResBlock, self).__init__()
 
-        self.units = []
-        for kernel_size in kernel_sizes:
-            self.units.append(ResUnit(filters, kernel_size, **kwargs))
+        self.units = nn.ModuleList([])
+        for i, kernel_size in enumerate(kernel_sizes):
+            if i == 0:
+                self.units.append(ResUnit(in_channels, out_channels, kernel_size, **kwargs))
+            else:
+                self.units.append(ResUnit(out_channels, out_channels, kernel_size, **kwargs))
 
-    def call(self, x):
+    def forward(self, x):
         h = x
         for layer in self.units:
             h = layer(h)
 
         return h
 
-class ResNet(Model):
-    def __init__(self, label_count: int, input_shape: Tuple[int, int, int]):
+class ResNet(nn.Module):
+    def __init__(self, label_count: int, gpu_id=-1):
         super(ResNet, self).__init__()
 
+        if gpu_id >= 0:
+            self.device = torch.device('cuda:{}'.format(gpu_id))
+        else:
+            self.device = torch.device('cpu')
+
         params = [
-            (64, 3, 2),
-            (128, 3, 2),
-            (256, 3, 2),
-            (512, 3, 2),
+            (64, 64, 3, 2),
+            (64, 128, 3, 2),
+            (128, 256, 3, 2),
+            (256, 512, 3, 2),
         ]
 
-        self.conv1 = ConvUnit(64, 7, strides=2, kernel_initializer='he_normal')
+        self.conv1 = ConvUnit(3, 64, 7, stride=2)
+        self.pool1 = nn.MaxPool2d(3, 2, padding=0)
 
-        self.blocks = []
-        for filters, kernel_size, block_count in params:
+        self.blocks = nn.ModuleList([])
+        for in_channels, out_channels, kernel_size, block_count in params:
             self.blocks.append(
-                ResBlock(filters, [kernel_size for _ in range(block_count)], kernel_initializer='he_normal'))
+                ResBlock(
+                    in_channels, out_channels, [kernel_size for _ in range(block_count)], padding=1,
+                )
+            )
 
-        self.fc = layers.Dense(label_count, kernel_initializer='he_normal')
+        self.fc = nn.Linear(512, label_count)
 
-        self(layers.Input(shape=input_shape))
+        self.to(self.device)
 
-    def call(self, x):
-        h = self.conv1(x)
-        h = layers.MaxPooling2D(pool_size=3, strides=2, padding='same')(h)
+    def forward(self, x):
+        h = x
+
+        h = self.conv1(h)
+        h = self.pool1(h)
+
         for block in self.blocks:
             h = block(h)
 
-        h = layers.GlobalAveragePooling2D()(h)
+        h = torch.mean(h, (2, 3))
         h = self.fc(h)
 
         return h
-
-def calc_loss(true, pred):
-    entropy_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(true, pred, name=None)
-    entropy_loss = tf.reduce_mean(entropy_losses)
-
-    return entropy_loss
