@@ -8,16 +8,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 
-# from mltools.model.attention_utils import PositionalEncoder, MultiHeadAttention, \
-#     Transformer as TransformerEncoderBlock
+from mltools.model.attention_utils import PositionalEncoder, MultiHeadAttention, \
+    Transformer as TransformerEncoderBlock
 
 logger = logging.getLogger(__name__)
 
 def get_masks(inputs, pad_index=0):
-    return inputs != pad_index
+    return inputs == pad_index
 
 def execute_rnn(inputs, masks, rnn_layer, state=None):
-    lengths = np.sum(masks.cpu().data.numpy(), axis=0).tolist()
+    lengths = np.sum(1 - masks.cpu().data.numpy(), axis=0).tolist()
     packed = rnn_utils.pack_padded_sequence(inputs, lengths, enforce_sorted=False)
 
     lstm_outputs, state = rnn_layer(packed, state)
@@ -31,9 +31,9 @@ def decoder_loss(true, prob, pad_index=0):
 
     losses = nn.NLLLoss(reduction='none')(
         nn.LogSoftmax(dim=1)(prob.view(-1, prob.shape[2])), true.reshape(-1))
-    losses = losses.view(true.shape[0], -1) * masks.float()
+    losses = losses.view(true.shape[0], -1) * (1 - masks.float())
 
-    lengths = torch.sum(masks.float(), dim=0)
+    lengths = torch.sum((1 - masks.float()), dim=0)
     losses /= lengths + 1e-18
 
     mean_loss = torch.mean(torch.sum(losses, dim=0))
@@ -333,141 +333,149 @@ class Seq2SeqWithGlobalAttention(nn.Module):
 
         return input_candidates[0][1][:, 1:]
 
-# class TransformerDecoderBlock(nn.Module):
-#     def __init__(
-#             self,
-#             model_dim,
-#             hidden_dim,
-#             head_count,
-#             feed_forward_hidden_dim,
-#             gpu_id=-1,
-#         ):
-#         super(TransformerDecoderBlock, self).__init__()
-#         self.masked_attention = MultiHeadAttention(
-#             model_dim, hidden_dim, head_count, forward_masked=True
-#         )
-#         self.layer_norm_after_masked_attention = layers.LayerNormalization()
+class TransformerDecoderBlock(nn.Module):
+    def __init__(
+            self,
+            input_dim,
+            attention_hidden_dim,
+            head_count,
+            feed_forward_hidden_dim,
+            gpu_id=-1,
+        ):
+        super(TransformerDecoderBlock, self).__init__()
+        self.masked_attention = MultiHeadAttention(
+            input_dim, attention_hidden_dim, head_count, forward_masked=True
+        )
+        self.layer_norm_after_masked_attention = nn.LayerNorm(input_dim)
 
-#         self.key_value_attention = MultiHeadAttention(
-#             model_dim, hidden_dim, head_count
-#         )
-#         self.layer_norm_after_key_value_attention = layers.LayerNormalization()
+        self.key_value_attention = MultiHeadAttention(
+            input_dim, attention_hidden_dim, head_count
+        )
+        self.layer_norm_after_key_value_attention = nn.LayerNorm(input_dim)
 
-#         self.hidden_layer = layers.Dense(feed_forward_hidden_dim)
-#         self.output_layer = layers.Dense(model_dim)
-#         self.layer_norm_after_feed_forward = layers.LayerNormalization()
+        self.hidden_layer = nn.Linear(input_dim, feed_forward_hidden_dim)
+        self.output_layer = nn.Linear(feed_forward_hidden_dim, input_dim)
+        self.layer_norm_after_feed_forward = nn.LayerNorm(input_dim)
 
-#     def forward(self, inputs, key_value, input_mask=None, key_value_mask=None):
-#         h = self.masked_attention(inputs, inputs, inputs, input_mask)
-#         h = h + inputs
-#         h0 = self.layer_norm_after_masked_attention(h)
+        if gpu_id >= 0:
+            self.device = torch.device('cuda:{}'.format(gpu_id))
+        else:
+            self.device = torch.device('cpu')
+        self.to(self.device)
 
-#         h = self.key_value_attention(h0, key_value, key_value, key_value_mask)
-#         h = h + h0
-#         h0 = self.layer_norm_after_key_value_attention(h)
+    def forward(self, inputs, key_value, input_mask=None, key_value_mask=None):
+        h = self.masked_attention(inputs, inputs, inputs, input_mask)
+        h = h + inputs
+        h0 = self.layer_norm_after_masked_attention(h)
 
-#         h = self.hidden_layer(h0)
-#         h = self.output_layer(h)
-#         h = h + h0
-#         h = self.layer_norm_after_feed_forward(h)
+        h = self.key_value_attention(h0, key_value, key_value, key_value_mask)
+        h = h + h0
+        h0 = self.layer_norm_after_key_value_attention(h)
 
-#         return h
+        h = self.hidden_layer(h0)
+        h = self.output_layer(h)
+        h = h + h0
+        h = self.layer_norm_after_feed_forward(h)
 
-# class TransformerEncoderDecoder(nn.Module):
-#     def __init__(
-#             self,
-#             encoder_vocab_count,
-#             decoder_vocab_count,
-#             emb_dim,
-#             encoder_hidden_dim,
-#             decoder_hidden_dim,
-#             head_count,
-#             feed_forward_hidden_dim,
-#             block_count,
-#             gpu_id=-1,
-#         ):
-#         super(TransformerEncoderDecoder, self).__init__()
+        return h
 
-#         self.positional_encoder = PositionalEncoder(emb_dim)
+class TransformerEncoderDecoder(nn.Module):
+    def __init__(
+            self,
+            encoder_vocab_count,
+            decoder_vocab_count,
+            emb_dim,
+            encoder_hidden_dim,
+            decoder_hidden_dim,
+            head_count,
+            feed_forward_hidden_dim,
+            block_count,
+            gpu_id=-1,
+        ):
+        super(TransformerEncoderDecoder, self).__init__()
 
-#         self.encoder_embedding_layer = layers.Embedding(
-#             encoder_vocab_count,
-#             emb_dim,
-#             mask_zero=True,
-#         )
-#         self.encoder_blocks = []
-#         for _ in range(block_count):
-#             self.encoder_blocks.append(TransformerEncoderBlock(
-#                 emb_dim, encoder_hidden_dim, head_count, feed_forward_hidden_dim
-#             ))
+        self.positional_encoder = PositionalEncoder(emb_dim)
 
-#         self.decoder_embedding_layer = layers.Embedding(
-#             decoder_vocab_count,
-#             emb_dim,
-#             mask_zero=True,
-#         )
-#         self.decoder_blocks = []
-#         for _ in range(block_count):
-#             self.decoder_blocks.append(TransformerDecoderBlock(
-#                 emb_dim, decoder_hidden_dim, head_count, feed_forward_hidden_dim
-#             ))
+        self.encoder_embedding_layer = nn.Embedding(
+            encoder_vocab_count,
+            emb_dim,
+        )
+        self.encoder_blocks = []
+        for _ in range(block_count):
+            self.encoder_blocks.append(TransformerEncoderBlock(
+                emb_dim, encoder_hidden_dim, head_count, feed_forward_hidden_dim
+            ))
 
-#         self.output_layer = layers.Dense(decoder_vocab_count)
+        self.decoder_embedding_layer = nn.Embedding(
+            decoder_vocab_count,
+            emb_dim,
+        )
+        self.decoder_blocks = []
+        for _ in range(block_count):
+            self.decoder_blocks.append(TransformerDecoderBlock(
+                emb_dim, decoder_hidden_dim, head_count, feed_forward_hidden_dim
+            ))
 
-#         encoder_inputs = layers.Input(shape=(None,))
-#         decoder_inputs = layers.Input(shape=(None,))
-#         self(encoder_inputs, decoder_inputs)
+        self.output_layer = nn.Linear(emb_dim, decoder_vocab_count)
 
-#     def encode(self, encoder_inputs):
-#         h = self.encoder_embedding_layer(encoder_inputs)
-#         if encoder_inputs.shape[1] is not None:
-#             h += tf.convert_to_tensor(self.positional_encoder(encoder_inputs.shape[1]))
-#         encoder_masks = self.encoder_embedding_layer.compute_mask(encoder_inputs)
+        if gpu_id >= 0:
+            self.device = torch.device('cuda:{}'.format(gpu_id))
+        else:
+            self.device = torch.device('cpu')
+        self.to(self.device)
 
-#         encoder_outputs = []
-#         for block in self.encoder_blocks:
-#             h = block(h, encoder_masks)
-#             encoder_outputs.append(h)
+    def encode(self, encoder_inputs):
+        h = self.encoder_embedding_layer(encoder_inputs)
+        if encoder_inputs.shape[1] is not None:
+            positional_encodes = self.positional_encoder(encoder_inputs.shape[1])
+            h += torch.Tensor(positional_encodes).to(self.device)
+        encoder_masks = get_masks(encoder_inputs)
 
-#         return encoder_outputs, encoder_masks
+        encoder_outputs = []
+        for block in self.encoder_blocks:
+            h = block(h, encoder_masks)
+            encoder_outputs.append(h)
 
-#     def decode(self, decoder_inputs, encoder_outputs, encoder_masks):
-#         h = self.decoder_embedding_layer(decoder_inputs)
-#         if decoder_inputs.shape[1] is not None:
-#             h += tf.convert_to_tensor(self.positional_encoder(decoder_inputs.shape[1]))
-#         decoder_masks = self.decoder_embedding_layer.compute_mask(decoder_inputs)
+        return encoder_outputs, encoder_masks
 
-#         for block, encoder_output in zip(
-#                 self.decoder_blocks,
-#                 encoder_outputs,
-#             ):
-#             h = block(h, encoder_output, decoder_masks, encoder_masks)
+    def decode(self, decoder_inputs, encoder_outputs, encoder_masks):
+        h = self.decoder_embedding_layer(decoder_inputs)
+        if decoder_inputs.shape[1] is not None:
+            positional_encodes = self.positional_encoder(decoder_inputs.shape[1])
+            h += torch.Tensor(positional_encodes).to(self.device)
+        decoder_masks = get_masks(decoder_inputs)
 
-#         h = self.output_layer(h)
+        for block, encoder_output in zip(
+                self.decoder_blocks,
+                encoder_outputs,
+            ):
+            h = block(h, encoder_output, decoder_masks, encoder_masks)
 
-#         return h
+        h = self.output_layer(h)
 
-#     def forward(self, encoder_inputs, decoder_inputs):
-#         encoder_outputs, encoder_masks = self.encode(encoder_inputs)
-#         decoder_outputs = self.decode(decoder_inputs, encoder_outputs, encoder_masks)
+        return h
 
-#         return decoder_outputs
+    def forward(self, encoder_inputs, decoder_inputs):
+        encoder_outputs, encoder_masks = self.encode(encoder_inputs)
+        decoder_outputs = self.decode(decoder_inputs, encoder_outputs, encoder_masks)
 
-#     def inference(self, encoder_inputs, begin_of_encode_index, seq_len):
-#         encoder_outputs, encoder_masks = self.encode(encoder_inputs)
+        return decoder_outputs
 
-#         mb_size = encoder_inputs.shape[0]
-#         decoder_indices = np.empty((mb_size, seq_len + 1), dtype=np.int32)
-#         decoder_indices[:, 0] = begin_of_encode_index
-#         for i in range(seq_len):
-#             decoder_inputs = decoder_indices[:, :i + 1]
-#             decoder_outputs = self.decode(
-#                 decoder_inputs, encoder_outputs, encoder_masks)
-#             decoder_probs = tf.nn.softmax(decoder_outputs[:, i:i + 1], axis=2).numpy()[:, 0]
-#             decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
-#             decoder_indices[:, i + 1] = np.array([
-#                 np.random.choice(decoder_probs.shape[1], p=decoder_probs[j])
-#                 for j in range(mb_size)
-#             ])
+    def inference(self, encoder_inputs, begin_of_encode_index, seq_len):
+        encoder_outputs, encoder_masks = self.encode(encoder_inputs)
 
-#         return decoder_indices
+        mb_size = encoder_inputs.shape[0]
+        decoder_indices = np.empty((mb_size, seq_len + 1), dtype=np.int32)
+        decoder_indices[:, 0] = begin_of_encode_index
+        for i in range(seq_len):
+            decoder_inputs = decoder_indices[:, :i + 1]
+            decoder_outputs = self.decode(
+                decoder_inputs, encoder_outputs, encoder_masks)
+            decoder_probs = F.softmax(decoder_outputs[:, i:i + 1], dim=2).numpy()[:, 0]
+            decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
+            decoder_indices[:, i + 1] = np.array([
+                np.random.choice(decoder_probs.shape[1], p=decoder_probs[j])
+                for j in range(mb_size)
+            ])
+
+        return decoder_indices

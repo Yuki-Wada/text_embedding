@@ -16,7 +16,7 @@ from mltools.utils import set_seed, set_logger, dump_json, get_date_str
 from mltools.dataset.tanaka_corpus import \
     TanakaCorpusDataSet as DataSet, TanakaCorpusDataLoader as DataLoader
 from mltools.model.encoder_decoder import decoder_loss, \
-    NaiveSeq2Seq, Seq2SeqWithGlobalAttention#, TransformerEncoderDecoder
+    NaiveSeq2Seq, Seq2SeqWithGlobalAttention, TransformerEncoderDecoder
 from mltools.optimizer.utils import get_torch_optimizer, get_torch_lr_scheduler
 from mltools.metric.metric_manager import MetricManager
 
@@ -40,8 +40,8 @@ def get_args():
     parser.add_argument('--decoder_hidden_dimension', dest='dec_hidden_dim', type=int, default=200)
 
     parser.add_argument('--optimizer', dest='optim', default='sgd')
-    parser.add_argument('--learning_rate', '-lr', dest='lr', type=float, default=1e-1)
-    parser.add_argument('--weight_decay', '-wd', type=float, default=0.0)
+    parser.add_argument('--learning_rate', '-lr', dest='lr', type=float, default=1e-3)
+    parser.add_argument('--weight_decay', '-wd', type=float, default=1e-5)
     parser.add_argument('--momentum', type=float, default=0.0)
     parser.add_argument('--nesterov', action='store_true')
     parser.add_argument('--clipvalue', type=float)
@@ -89,17 +89,17 @@ def get_model(model_params):
             model_params['dec_hidden_dim'],
             model_params['gpu_id'],
         )
-    # if model_params['model'] == 'transformer':
-    #     return TransformerEncoderDecoder(
-    #         encoder_vocab_count=model_params['encoder_vocab_count'],
-    #         decoder_vocab_count=model_params['decoder_vocab_count'],
-    #         emb_dim=model_params['emb_dim'],
-    #         encoder_hidden_dim=model_params['enc_hidden_dim'],
-    #         decoder_hidden_dim=model_params['dec_hidden_dim'],
-    #         head_count=4,
-    #         feed_forward_hidden_dim=6,
-    #         block_count=6,
-    #     )
+    if model_params['model'] == 'transformer':
+        return TransformerEncoderDecoder(
+            encoder_vocab_count=model_params['encoder_vocab_count'],
+            decoder_vocab_count=model_params['decoder_vocab_count'],
+            emb_dim=model_params['emb_dim'],
+            encoder_hidden_dim=model_params['enc_hidden_dim'],
+            decoder_hidden_dim=model_params['dec_hidden_dim'],
+            head_count=4,
+            feed_forward_hidden_dim=6,
+            block_count=6,
+        )
 
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
 
@@ -209,8 +209,8 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
                 loss=mb_train_loss,
                 plex=np.exp(mb_train_loss),
             ))
-            lr_scheduler.step()
 
+        lr_scheduler.step()
         train_loss = train_loss_sum / train_data_count
         logger.info('Train Loss: %f', train_loss)
         metric_manager.register_loss(train_loss, epoch, 'train')

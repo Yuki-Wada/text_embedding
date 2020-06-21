@@ -128,7 +128,6 @@ pipenv install
     ```
 
 # ToDo
-- Data Augumentation
 - Metric
 - Pipfile 周りの対応
 - Linux (主に Ubuntu) 対応

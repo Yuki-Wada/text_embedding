@@ -188,13 +188,13 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
                 loss=mb_train_loss,
                 accu=np.sum(mb_cm * np.eye(10)) / mb_count,
             ))
-            lr_scheduler.step()
 
         train_loss = train_loss_sum / train_data_count
         train_accuracy = np.sum(train_cm * np.eye(10)) / train_data_count
         logger.info('Train Loss: %f', train_loss)
         logger.info('Train Accuracy: %f', train_accuracy)
         metric_manager.register_loss(train_loss, epoch, 'train')
+        lr_scheduler.step()
 
 def evaluate_model(model, valid_data_loader, metric_manager, epoch):
     model.eval()
@@ -203,7 +203,7 @@ def evaluate_model(model, valid_data_loader, metric_manager, epoch):
     valid_loss_sum = 0.0
     valid_data_count = 0
     valid_cm = np.zeros((10, 10), dtype=np.int32)
-    with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
+    with tqdm(total=len(valid_data_loader), desc='Valid CNN') as pbar:
         for mb_images, mb_labels in valid_data_loader:
             mb_count = mb_images.shape[0]
 
@@ -280,7 +280,7 @@ def run():
     set_seed(args.seed)
 
     train_data_set = Cifar10DataSet(args.train_image_npy_path, args.train_label_npy_path)
-    train_data_loader = Cifar10DataLoader(train_data_set, args.mb_size)
+    train_data_loader = Cifar10DataLoader(train_data_set, args.mb_size, use_augment=True)
     test_data_set = Cifar10DataSet(args.test_image_npy_path, args.test_label_npy_path)
     test_data_loader = Cifar10DataLoader(test_data_set, args.mb_size)
 

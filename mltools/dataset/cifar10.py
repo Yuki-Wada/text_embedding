@@ -6,6 +6,8 @@ from typing import Tuple
 import logging
 import numpy as np
 
+from mltools.preprocessor.augmenter import ImageAugmenter
+
 logger = logging.getLogger(__name__)
 
 class Cifar10DataSet:
@@ -25,9 +27,13 @@ class Cifar10DataSet:
         return self.images.shape[1:]
 
 class Cifar10DataLoader:
-    def __init__(self, data_set: Cifar10DataSet, mb_size: int):
+    def __init__(self, data_set: Cifar10DataSet, mb_size: int, use_augment=False):
         self.data_set = data_set
         self.mb_size = mb_size
+        if use_augment:
+            self.augmenter = ImageAugmenter()
+        else:
+            self.augmenter = None
 
     @property
     def iter_count(self):
@@ -43,6 +49,10 @@ class Cifar10DataLoader:
         for i in range(0, len(self.data_set), self.mb_size):
             mb_images = self.data_set.images[indices[i : i + self.mb_size]]
             mb_labels = self.data_set.labels[indices[i : i + self.mb_size]]
+
+            if self.augmenter is not None:
+                for mb_idx in range(mb_images.shape[0]):
+                    mb_images[mb_idx] = self.augmenter(mb_images[mb_idx])
 
             mb_images = mb_images.transpose(0, 3, 1, 2)
 
