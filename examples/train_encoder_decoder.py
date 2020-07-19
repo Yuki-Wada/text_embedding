@@ -4,6 +4,7 @@ Train an Encoder-Decoder model.
 import os
 import argparse
 import logging
+import json
 from collections import OrderedDict
 from tqdm import tqdm
 import numpy as np
@@ -15,7 +16,7 @@ from mltools.utils import set_seed, set_logger, dump_json, get_date_str
 #     BilingualDataSet as DataSet, BilingualDataLoader as DataLoader
 from mltools.dataset.tanaka_corpus import \
     TanakaCorpusDataSet as DataSet, TanakaCorpusDataLoader as DataLoader
-from mltools.model.encoder_decoder import decoder_loss, \
+from mltools.model.encoder_decoder import decoder_loss, calc_bleu_scores, \
     NaiveSeq2Seq, Seq2SeqWithGlobalAttention, TransformerEncoderDecoder
 from mltools.optimizer.utils import get_torch_optimizer, get_torch_lr_scheduler
 from mltools.metric.metric_manager import MetricManager
@@ -36,8 +37,10 @@ def get_args():
 
     parser.add_argument('--model', default='naive')
     parser.add_argument('--embedding_dimension', dest='emb_dim', type=int, default=400)
-    parser.add_argument('--encoder_hidden_dimension', dest='enc_hidden_dim', type=int, default=200)
-    parser.add_argument('--decoder_hidden_dimension', dest='dec_hidden_dim', type=int, default=200)
+    parser.add_argument('--hidden_dimension', dest='hidden_dim', type=int, default=200)
+    parser.add_argument('--bidirectional', action='store_true')
+    parser.add_argument('--model_params')
+    parser.add_argument('--initial_weight')
 
     parser.add_argument('--optimizer', dest='optim', default='sgd')
     parser.add_argument('--learning_rate', '-lr', dest='lr', type=float, default=1e-3)
@@ -55,20 +58,45 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=20, help='epoch count')
     parser.add_argument('--mb_size', type=int, default=32, help='minibatch size')
 
+    parser.add_argument('--decoding_type', default='random_choice')
+    parser.add_argument('--breadth_len', type=int, default=8)
+
     parser.add_argument('--seed', type=int, help='random seed for initialization')
 
     args = parser.parse_args()
 
     return args
 
-def get_model_params(args):
-    return {
-        'model': args.model,
-        'emb_dim': args.emb_dim,
-        'enc_hidden_dim': args.enc_hidden_dim,
-        'dec_hidden_dim': args.dec_hidden_dim,
-        'gpu_id': args.gpu_id,
+def get_decoding_params(args, preprocessor):
+    decoding_params = {
+        'decoding_type': args.decoding_type,
+        'begin_of_encode_index': preprocessor.en_begin_of_encode_index,
     }
+    if decoding_params['decoding_type'] == 'beam_search':
+        decoding_params['breadth_len'] = args.breadth_len
+
+    return decoding_params
+
+def get_model_params(args):
+    if args.model == 'naive' or args.model == 'global_attention':
+        return {
+            'model': args.model,
+            'emb_dim': args.emb_dim,
+            'hidden_dim': args.hidden_dim,
+            'bidirectional': args.bidirectional,
+            'gpu_id': args.gpu_id,
+        }
+    if args.model == 'transformer':
+        return {
+            'model': args.model,
+            'model_dim': args.emb_dim,
+            'head_count': 4,
+            'feed_forward_hidden_dim': 512,
+            'encoder_block_count': 6,
+            'decoder_block_count': 6,
+            'gpu_id': args.gpu_id,
+        }
+    raise ValueError('The model {} is not supported.'.format(args.model))
 
 def get_model(model_params):
     if model_params['model'] == 'naive':
@@ -76,8 +104,8 @@ def get_model(model_params):
             model_params['encoder_vocab_count'],
             model_params['decoder_vocab_count'],
             model_params['emb_dim'],
-            model_params['enc_hidden_dim'],
-            model_params['dec_hidden_dim'],
+            model_params['hidden_dim'],
+            model_params['bidirectional'],
             model_params['gpu_id'],
         )
     if model_params['model'] == 'global_attention':
@@ -85,20 +113,20 @@ def get_model(model_params):
             model_params['encoder_vocab_count'],
             model_params['decoder_vocab_count'],
             model_params['emb_dim'],
-            model_params['enc_hidden_dim'],
-            model_params['dec_hidden_dim'],
+            model_params['hidden_dim'],
+            model_params['bidirectional'],
             model_params['gpu_id'],
         )
     if model_params['model'] == 'transformer':
         return TransformerEncoderDecoder(
             encoder_vocab_count=model_params['encoder_vocab_count'],
             decoder_vocab_count=model_params['decoder_vocab_count'],
-            emb_dim=model_params['emb_dim'],
-            encoder_hidden_dim=model_params['enc_hidden_dim'],
-            decoder_hidden_dim=model_params['dec_hidden_dim'],
-            head_count=4,
-            feed_forward_hidden_dim=6,
-            block_count=6,
+            model_dim=model_params['model_dim'],
+            head_count=model_params['head_count'],
+            feed_forward_hidden_dim=model_params['feed_forward_hidden_dim'],
+            encoder_block_count=model_params['encoder_block_count'],
+            decoder_block_count=model_params['decoder_block_count'],
+            gpu_id=model_params['gpu_id'],
         )
 
     raise ValueError('The model {} is not supported.'.format(model_params['model']))
@@ -132,7 +160,7 @@ def get_optimizer_params(args):
 
         return optimizer_params
 
-    raise ValueError('The optimizer {} is not supported.'.format(args.optimizer))
+    raise ValueError('The optimizer {} is not supported.'.format(args.optim))
 
 def get_lr_scheduler_params(args, train_data_loader):
     lr_scheduler_params = {}
@@ -167,18 +195,30 @@ def get_lr_scheduler_params(args, train_data_loader):
     raise ValueError(
         'The learning rate scheduler {} is not supported.'.format(args.lr_scheduler))
 
-def setup_output_dir(output_dir_path, args, model_params, optimizer_params):
+def setup_output_dir(output_dir_path, args, model_params, optimizer_params, decoding_params):
     os.makedirs(output_dir_path, exist_ok=True)
     dump_json(args, os.path.join(output_dir_path, 'args.json'))
     dump_json(model_params, os.path.join(output_dir_path, 'model.json'))
     dump_json(optimizer_params, os.path.join(output_dir_path, 'optimizer.json'))
+    dump_json(decoding_params, os.path.join(output_dir_path, 'decoding.json'))
 
-def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manager, epoch):
+def train_model(
+        model,
+        train_data_loader,
+        optimizer,
+        lr_scheduler,
+        preprocessor,
+        decoding_params,
+        metric_manager,
+        epoch,
+    ):
     model.train()
     device = model.device
 
     train_loss_sum = 0.0
     train_data_count = 0
+    bleu2_scores = []
+    bleu4_scores = []
     with tqdm(total=len(train_data_loader), desc='Train') as pbar:
         for mb_inputs, mb_outputs in train_data_loader:
             mb_count = mb_inputs.shape[0]
@@ -186,16 +226,30 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
             try:
                 mb_inputs = torch.LongTensor(mb_inputs.transpose(1, 0)).to(device)
                 mb_outputs = torch.LongTensor(mb_outputs.transpose(1, 0)).to(device)
+                decoding_params['seq_len'] = mb_outputs.shape[0] - 1
 
                 model.zero_grad()
-                mb_probs = model(mb_inputs, mb_outputs[:-1])
-                mb_train_loss = decoder_loss(mb_outputs[1:], mb_probs)
+                mb_preds, _ = model.inference(mb_inputs, decoding_params)
+                mb_train_loss = decoder_loss(mb_outputs[1:], mb_preds)
                 mb_train_loss.backward()
                 optimizer.step()
 
                 mb_train_loss = mb_train_loss.cpu().data.numpy()
                 train_loss_sum += mb_train_loss * mb_count
                 train_data_count += mb_count
+
+                mb_outputs = mb_outputs.cpu().data.numpy().transpose(1, 0)[:, 1:]
+                mb_predicted = np.argmax(mb_preds.cpu().data.numpy(), axis=2).transpose(1, 0)
+
+                mb_bleu2_scores = calc_bleu_scores(
+                    mb_outputs, mb_predicted, preprocessor.ja_eos_index, max_n=2)
+                bleu2_scores += mb_bleu2_scores
+                mb_bleu2_score = np.mean(mb_bleu2_scores)
+
+                mb_bleu4_scores = calc_bleu_scores(
+                    mb_outputs, mb_predicted, preprocessor.ja_eos_index, max_n=4)
+                bleu4_scores += mb_bleu4_scores
+                mb_bleu4_score = np.mean(mb_bleu4_scores)
 
             except RuntimeError as error:
                 logger.error(str(error))
@@ -208,19 +262,41 @@ def train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manage
             pbar.set_postfix(OrderedDict(
                 loss=mb_train_loss,
                 plex=np.exp(mb_train_loss),
+                bleu2=mb_bleu2_score,
+                bleu4=mb_bleu4_score,
             ))
+            if lr_scheduler.step_type == 'iter':
+                lr_scheduler.step()
 
-        lr_scheduler.step()
+        if lr_scheduler.step_type == 'epoch':
+            lr_scheduler.step()
+
         train_loss = train_loss_sum / train_data_count
         logger.info('Train Loss: %f', train_loss)
-        metric_manager.register_loss(train_loss, epoch, 'train')
+        bleu2_score = np.mean(bleu2_scores)
+        logger.info('BLEU2 Score: %f', bleu2_score)
+        bleu4_score = np.mean(bleu4_scores)
+        logger.info('BLEU4 Score: %f', bleu4_score)
 
-def evaluate_model(model, valid_data_loader, metric_manager, epoch):
+        metric_manager.register_metric(train_loss, epoch, 'train', 'loss')
+        metric_manager.register_metric(bleu2_score, epoch, 'train', 'bleu2')
+        metric_manager.register_metric(bleu4_score, epoch, 'train', 'bleu4')
+
+def evaluate_model(
+        model,
+        valid_data_loader,
+        preprocessor,
+        decoding_params,
+        metric_manager,
+        epoch,
+    ):
     model.eval()
     device = model.device
 
     valid_loss_sum = 0.0
     valid_data_count = 0
+    bleu2_scores = []
+    bleu4_scores = []
     with tqdm(total=len(valid_data_loader), desc='Valid') as pbar:
         for mb_inputs, mb_outputs in valid_data_loader:
             mb_count = mb_inputs.shape[0]
@@ -228,12 +304,26 @@ def evaluate_model(model, valid_data_loader, metric_manager, epoch):
             try:
                 mb_inputs = torch.LongTensor(mb_inputs.transpose(1, 0)).to(device)
                 mb_outputs = torch.LongTensor(mb_outputs.transpose(1, 0)).to(device)
+                decoding_params['seq_len'] = mb_outputs.shape[0] - 1
 
-                mb_probs = model(mb_inputs, mb_outputs[:-1])
-                mb_valid_loss = decoder_loss(mb_outputs[1:], mb_probs).cpu().data.numpy()
+                mb_preds, _ = model.inference(mb_inputs, decoding_params)
+                mb_valid_loss = decoder_loss(mb_outputs[1:], mb_preds).cpu().data.numpy()
+
+                mb_outputs = mb_outputs.cpu().data.numpy().transpose(1, 0)[:, 1:]
+                mb_predicted = np.argmax(mb_preds.cpu().data.numpy(), axis=2).transpose(1, 0)
 
                 valid_loss_sum += mb_valid_loss * mb_count
                 valid_data_count += mb_count
+
+                mb_bleu2_scores = calc_bleu_scores(
+                    mb_outputs, mb_predicted, preprocessor.ja_eos_index, max_n=2)
+                bleu2_scores += mb_bleu2_scores
+                mb_bleu2_score = np.mean(mb_bleu2_scores)
+
+                mb_bleu4_scores = calc_bleu_scores(
+                    mb_outputs, mb_predicted, preprocessor.ja_eos_index, max_n=4)
+                bleu4_scores += mb_bleu4_scores
+                mb_bleu4_score = np.mean(mb_bleu4_scores)
 
             except RuntimeError as error:
                 logger.error(str(error))
@@ -246,11 +336,20 @@ def evaluate_model(model, valid_data_loader, metric_manager, epoch):
             pbar.set_postfix(OrderedDict(
                 loss=mb_valid_loss,
                 plex=np.exp(mb_valid_loss),
+                bleu2=mb_bleu2_score,
+                bleu4=mb_bleu4_score,
             ))
 
         valid_loss = valid_loss_sum / valid_data_count
         logger.info('Valid Loss: %f', valid_loss)
-        metric_manager.register_loss(valid_loss, epoch, 'valid')
+        bleu2_score = np.mean(bleu2_scores)
+        logger.info('BLEU2 Score: %f', bleu2_score)
+        bleu4_score = np.mean(bleu4_scores)
+        logger.info('BLEU4 Score: %f', bleu4_score)
+
+        metric_manager.register_metric(valid_loss, epoch, 'valid', 'loss')
+        metric_manager.register_metric(bleu2_score, epoch, 'valid', 'bleu2')
+        metric_manager.register_metric(bleu4_score, epoch, 'valid', 'bleu4')
 
     return valid_loss
 
@@ -260,6 +359,8 @@ def train_loop(
         model,
         optimizer,
         lr_scheduler,
+        preprocessor,
+        decoding_params,
         epochs,
         output_dir_path,
         model_name_format,
@@ -270,21 +371,38 @@ def train_loop(
     for epoch in range(epochs):
         logger.info('Start Epoch %s', epoch + 1)
 
-        train_model(model, train_data_loader, optimizer, lr_scheduler, metric_manager, epoch)
-        valid_loss = evaluate_model(model, valid_data_loader, metric_manager, epoch)
+        train_model(
+            model, train_data_loader, optimizer, lr_scheduler,
+            preprocessor, decoding_params,
+            metric_manager, epoch,
+        )
+        valid_loss = evaluate_model(
+            model, valid_data_loader,
+            preprocessor, decoding_params,
+            metric_manager, epoch,
+        )
 
         # Save
-        metric_manager.plot_loss('Loss', os.path.join(output_dir_path, 'loss.png'))
+        metric_manager.plot_metric(
+            'loss', 'Loss', os.path.join(output_dir_path, 'loss.png'))
+        metric_manager.plot_metric(
+            'bleu2', 'BLEU Score', os.path.join(output_dir_path, 'bleu2.png'))
+        metric_manager.plot_metric(
+            'bleu4', 'BLEU Score', os.path.join(output_dir_path, 'bleu4.png'))
         metric_manager.save_score()
 
         monitored_metric = - valid_loss
         if best_monitored_metric is None or best_monitored_metric < monitored_metric:
             best_monitored_metric = monitored_metric
             logger.info('The current score is best.')
-            if model_name_format:
-                model_name = model_name_format.format(epoch=epoch + 1)
-                logger.info('Save the model as %s', model_name)
-                torch.save(model.state_dict(), os.path.join(output_dir_path, model_name))
+
+        if model_name_format:
+            model_name = model_name_format.format(epoch=epoch + 1)
+            logger.info('Save the model as %s', model_name)
+
+            device = model.device
+            torch.save(model.to('cpu').state_dict(), os.path.join(output_dir_path, model_name))
+            model.to(device)
 
     return best_monitored_metric
 
@@ -305,6 +423,7 @@ def run():
     model_params = get_model_params(args)
     optimizer_params = get_optimizer_params(args)
     lr_scheduler_params = get_lr_scheduler_params(args, train_data_loader)
+    decoding_params = get_decoding_params(args, preprocessor)
     if args.lang == 'ja_to_en':
         model_params['encoder_vocab_count'] = train_data_set.ja_vocab_count
         model_params['decoder_vocab_count'] = train_data_set.en_vocab_count
@@ -313,11 +432,18 @@ def run():
         model_params['decoder_vocab_count'] = train_data_set.ja_vocab_count
 
     output_dir_path = args.output_dir_format.format(date=get_date_str())
-    setup_output_dir(output_dir_path, dict(args._get_kwargs()), model_params, optimizer_params) #pylint: disable=protected-access
+    setup_output_dir(
+        output_dir_path, dict(args._get_kwargs()), #pylint: disable=protected-access
+        model_params, optimizer_params, decoding_params)
     preprocessor.save(os.path.join(output_dir_path, args.preprocessor))
 
     # Set up Model and Optimizer
+    if args.model_params:
+        with open(args.model_params, 'r') as f:
+            model_params = json.load(f)
     model = get_model(model_params)
+    if args.initial_weight:
+        model.load_state_dict(torch.load(args.initial_weight))
     optimizer = get_torch_optimizer(model.parameters(), optimizer_params)
     lr_scheduler = get_torch_lr_scheduler(optimizer, lr_scheduler_params)
 
@@ -327,6 +453,8 @@ def run():
         model=model,
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
+        preprocessor=preprocessor,
+        decoding_params=decoding_params,
         epochs=args.epochs,
         output_dir_path=output_dir_path,
         model_name_format=args.model_name_format,

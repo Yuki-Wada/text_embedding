@@ -10,3 +10,4 @@ venv/
 *.code-workspace
 *.pyd
 *.so
+scripts/template.ps1

@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 
 from mltools.model.attention_utils import PositionalEncoder, MultiHeadAttention, \
-    Transformer as TransformerEncoderBlock
+    TransformerEncoderBlock
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,14 @@ def execute_rnn(inputs, masks, rnn_layer, state=None):
     lstm_outputs, state = rnn_layer(packed, state)
 
     outputs, _ = rnn_utils.pad_packed_sequence(lstm_outputs)
+
+    if rnn_layer.bidirectional:
+        hidden_dim = outputs.shape[2] // 2
+        outputs = outputs[:, :, :hidden_dim] + outputs[:, :, hidden_dim:]
+        h, c = state
+        h = h[:1] + h[1:]
+        c = c[:1] + c[1:]
+        state = h, c
 
     return outputs, state
 
@@ -40,6 +48,96 @@ def decoder_loss(true, prob, pad_index=0):
 
     return mean_loss
 
+def calc_bleu_score(true, pred, max_n=4):
+    def get_ngram_count_dict(tokens, n):
+        ngram_count_dict = {}
+        for i in range(len(tokens) - n + 1):
+            ngram = tuple(tokens[i : i + n])
+            if ngram not in ngram_count_dict:
+                ngram_count_dict[ngram] = 0
+            ngram_count_dict[ngram] += 1
+
+        return ngram_count_dict
+
+    def get_modified_ngram_precision(true, pred, n):
+        true_ngram_count_dict = get_ngram_count_dict(true, n)
+        pred_ngram_count_dict = get_ngram_count_dict(pred, n)
+
+        if not pred_ngram_count_dict:
+            return 0
+
+        clipped_count = 0
+        total_pred_ngram_count = 0
+        for ngram in pred_ngram_count_dict:
+            true_count = true_ngram_count_dict[ngram] if ngram in true_ngram_count_dict else 0
+            pred_count = pred_ngram_count_dict[ngram]
+            total_pred_ngram_count += pred_count
+            clipped_count += min(true_count, pred_count)
+
+        return clipped_count / total_pred_ngram_count
+
+    if not pred:
+        return 0
+
+    score = 1
+    for n in range(1, max_n + 1):
+        score *= get_modified_ngram_precision(true, pred, n)
+    score **= 1 / max_n
+
+    score *= np.exp(min(0, 1 - len(true) / len(pred)))
+    score *= 100
+
+    return score
+
+def calc_bleu_scores(trues, preds, eos_index, max_n=4):
+    scores = []
+    for true_indices, pred_indices in zip(trues, preds):
+        true = []
+        pred = []
+        for index in true_indices:
+            if index == eos_index:
+                break
+            true.append(index)
+        for index in pred_indices:
+            if index == eos_index:
+                break
+            pred.append(index)
+
+        scores.append(calc_bleu_score(true, pred, max_n=max_n))
+
+    return scores
+
+class GreedyChoiceDecoder:
+    def __init__(self, mb_size, seq_len, begin_of_encode_index):
+        self.mb_size = mb_size
+        self.seq_len = seq_len
+        self.begin_of_encode_index = begin_of_encode_index
+
+        self.seq_index = 0
+
+    def start(self, state):
+        paths = np.zeros((self.mb_size, self.seq_len + 1), dtype=np.int)
+        paths[:, 0] = self.begin_of_encode_index
+        all_outputs = None
+        probs = np.ones((self.mb_size,))
+
+        return [(state, all_outputs, paths, probs)]
+
+    def decode(self, output_candidates):
+        self.seq_index += 1
+
+        (decoder_outputs, state), all_outputs, paths, probs = output_candidates[0]
+        decoder_probs = F.softmax(decoder_outputs, dim=1).cpu().data.numpy()
+
+        for mb_idx in range(self.mb_size):
+            decoder_probs[mb_idx, 0] = 0
+            word_idx = np.argmax(decoder_probs[mb_idx])
+
+            paths[mb_idx, self.seq_index] = word_idx
+            probs[mb_idx] *= decoder_probs[mb_idx, word_idx]
+
+        return [(state, all_outputs, paths, probs)]
+
 class RandomChoiceDecoder:
     def __init__(self, mb_size, seq_len, begin_of_encode_index):
         self.mb_size = mb_size
@@ -49,31 +147,29 @@ class RandomChoiceDecoder:
         self.seq_index = 0
 
     def start(self, state):
-        paths = np.zeros((self.mb_size, self.seq_len + 1))
+        paths = np.zeros((self.mb_size, self.seq_len + 1), dtype=np.int)
         paths[:, 0] = self.begin_of_encode_index
-        decoder_inputs = paths[:, 0]
+        all_outputs = None
         probs = np.ones((self.mb_size,))
 
-        return [((decoder_inputs, state), paths, probs)]
+        return [(state, all_outputs, paths, probs)]
 
     def decode(self, output_candidates):
         self.seq_index += 1
 
-        (decoder_outputs, state), paths, probs = output_candidates[0]
-        decoder_probs = F.softmax(decoder_outputs, dim=2).cpu().data.numpy()[0]
+        (decoder_outputs, state), all_outputs, paths, probs = output_candidates[0]
+        decoder_probs = F.softmax(decoder_outputs, dim=1).cpu().data.numpy()
         decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
 
-        decoder_inputs = np.zeros((self.mb_size))
         for mb_idx in range(self.mb_size):
             word_idx = 0
             while word_idx == 0:
                 word_idx = np.random.choice(decoder_probs.shape[1], p=decoder_probs[mb_idx])
 
-            decoder_inputs[mb_idx] = word_idx
             paths[mb_idx, self.seq_index] = word_idx
             probs[mb_idx] *= decoder_probs[mb_idx, word_idx]
 
-        return [((decoder_inputs, state), paths, probs)]
+        return [(state, all_outputs, paths, probs)]
 
 class BeamSearchDecoder:
     def __init__(self, mb_size, seq_len, breadth_len, begin_of_encode_index):
@@ -85,12 +181,12 @@ class BeamSearchDecoder:
         self.seq_index = 0
 
     def start(self, state):
-        paths = np.zeros((self.mb_size, self.seq_len + 1))
+        paths = np.zeros((self.mb_size, self.seq_len + 1), dtype=np.int)
         paths[:, 0] = self.begin_of_encode_index
-        decoder_inputs = paths[:, 0]
+        all_outputs = None
         probs = np.ones((self.mb_size,))
 
-        return [((decoder_inputs, state), paths, probs)]
+        return [(state, all_outputs, paths, probs)]
 
     def decode(self, output_candidates):
         self.seq_index += 1
@@ -98,8 +194,8 @@ class BeamSearchDecoder:
         idx_count = len(output_candidates) * self.breadth_len
         prob_table = np.zeros((self.mb_size, idx_count))
         index_table = np.zeros((self.mb_size, idx_count)).astype(np.int32)
-        for output_idx, ((decoder_outputs, _), _, base_probs) in enumerate(output_candidates):
-            decoder_probs = F.softmax(decoder_outputs, dim=2).cpu().data.numpy()[0]
+        for output_idx, ((decoder_outputs, _), _, _, base_probs) in enumerate(output_candidates):
+            decoder_probs = F.softmax(decoder_outputs, dim=1).cpu().data.numpy()
             decoder_probs[:, 0] = 0
             decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
             indices = np.argsort(decoder_probs, axis=1)[:, ::-1]
@@ -114,29 +210,31 @@ class BeamSearchDecoder:
 
         next_input_candidates = []
         for idx in range(self.breadth_len):
-            decoder_inputs = np.zeros((self.mb_size,))
             hs, cs = [], []
+            all_outputs = []
             probs = np.zeros((self.mb_size,))
-            paths = np.zeros((self.mb_size, self.seq_len + 1))
+            paths = np.zeros((self.mb_size, self.seq_len + 1), dtype=np.int)
 
             for mb_idx in range(self.mb_size):
                 selected_idx = selected_indices[mb_idx, idx]
                 output_idx = int(selected_idx / self.breadth_len)
 
-                decoder_inputs[mb_idx] = index_table[mb_idx, selected_idx]
+                state = output_candidates[output_idx][0][1]
+                if state is not None:
+                    h_n, c_n = state
+                    hs.append(h_n[:, mb_idx:mb_idx+1])
+                    cs.append(c_n[:, mb_idx:mb_idx+1])
 
-                h_n, c_n = output_candidates[output_idx][0][1]
-                hs.append(h_n[:, mb_idx:mb_idx+1])
-                cs.append(c_n[:, mb_idx:mb_idx+1])
-
-                paths[mb_idx] = output_candidates[output_idx][1][mb_idx]
+                paths[mb_idx] = output_candidates[output_idx][2][mb_idx]
+                all_outputs.append(output_candidates[output_idx][1][:, mb_idx:mb_idx+1])
                 paths[mb_idx, self.seq_index] = index_table[mb_idx, selected_idx]
 
                 probs[mb_idx] = prob_table[mb_idx, selected_idx]
 
-            state = (torch.cat(hs, dim=1), torch.cat(cs, dim=1))
+            state = (torch.cat(hs, dim=1), torch.cat(cs, dim=1)) if hs else None
+            all_outputs = torch.cat(all_outputs, dim=1)
 
-            next_input_candidates.append(((decoder_inputs, state), paths, probs))
+            next_input_candidates.append((state, all_outputs, paths, probs))
 
         return next_input_candidates
 
@@ -144,6 +242,8 @@ def get_inference_decoder(decoding_params, mb_size):
     begin_of_encode_index = decoding_params['begin_of_encode_index']
     seq_len = decoding_params['seq_len']
 
+    if decoding_params['decoding_type'] == 'greedy_choice':
+        return GreedyChoiceDecoder(mb_size, seq_len, begin_of_encode_index)
     if decoding_params['decoding_type'] == 'random_choice':
         return RandomChoiceDecoder(mb_size, seq_len, begin_of_encode_index)
     if decoding_params['decoding_type'] == 'beam_search':
@@ -158,8 +258,8 @@ class NaiveSeq2Seq(nn.Module):
             encoder_vocab_count,
             decoder_vocab_count,
             emb_dim,
-            enc_hidden_dim,
-            dec_hidden_dim,
+            hidden_dim,
+            bidirectional,
             gpu_id=-1,
         ):
         super(NaiveSeq2Seq, self).__init__()
@@ -170,7 +270,8 @@ class NaiveSeq2Seq(nn.Module):
         )
         self.encoder_rnn = nn.LSTM(
             input_size=emb_dim,
-            hidden_size=enc_hidden_dim,
+            hidden_size=hidden_dim,
+            bidirectional=bidirectional,
         )
 
         self.decoder_embedding_layer = nn.Embedding(
@@ -179,9 +280,9 @@ class NaiveSeq2Seq(nn.Module):
         )
         self.decoder_rnn = nn.LSTM(
             input_size=emb_dim,
-            hidden_size=dec_hidden_dim,
+            hidden_size=hidden_dim,
         )
-        self.output_layer = nn.Linear(dec_hidden_dim, decoder_vocab_count)
+        self.output_layer = nn.Linear(hidden_dim, decoder_vocab_count)
 
         if gpu_id >= 0:
             self.device = torch.device('cuda:{}'.format(gpu_id))
@@ -222,17 +323,19 @@ class NaiveSeq2Seq(nn.Module):
         _, state = self.encode(encoder_inputs)
 
         input_candidates = inference_decoder.start(state)
-        for _ in range(seq_len):
+        for seq in range(seq_len):
             output_candidates = []
-            for (decoder_inputs, state), path, prob in input_candidates:
-                decoder_inputs = np.expand_dims(decoder_inputs, axis=0)
-                decoder_inputs = torch.LongTensor(decoder_inputs).to(self.device)
+            for state, all_outputs, paths, probs in input_candidates:
+                decoder_inputs = torch.LongTensor(
+                    paths[:, seq:seq+1].transpose(1, 0)).to(self.device)
                 decoder_outputs, state = self.decode(decoder_inputs, state)
-                output_candidates.append(((decoder_outputs, state), path, prob))
+                all_outputs = torch.cat(
+                    ([all_outputs] if all_outputs is not None else []) + [decoder_outputs])
+                output_candidates.append(((decoder_outputs[0], state), all_outputs, paths, probs))
 
             input_candidates = inference_decoder.decode(output_candidates)
 
-        return input_candidates[0][1][:, 1:]
+        return input_candidates[0][1], input_candidates[0][2][:, 1:]
 
 class Seq2SeqWithGlobalAttention(nn.Module):
     def __init__(
@@ -240,8 +343,8 @@ class Seq2SeqWithGlobalAttention(nn.Module):
             encoder_vocab_count,
             decoder_vocab_count,
             emb_dim,
-            enc_hidden_dim,
-            dec_hidden_dim,
+            hidden_dim,
+            bidirectional,
             gpu_id=-1,
         ):
         super(Seq2SeqWithGlobalAttention, self).__init__()
@@ -252,7 +355,8 @@ class Seq2SeqWithGlobalAttention(nn.Module):
         )
         self.encoder_rnn = nn.LSTM(
             input_size=emb_dim,
-            hidden_size=enc_hidden_dim,
+            hidden_size=hidden_dim,
+            bidirectional=bidirectional,
         )
 
         self.decoder_embedding_layer = nn.Embedding(
@@ -261,12 +365,12 @@ class Seq2SeqWithGlobalAttention(nn.Module):
         )
         self.decoder_rnn = nn.LSTM(
             input_size=emb_dim,
-            hidden_size=dec_hidden_dim,
+            hidden_size=hidden_dim,
         )
 
-        self.global_attention_layer = nn.Linear(dec_hidden_dim, enc_hidden_dim)
+        self.global_attention_layer = nn.Linear(hidden_dim, hidden_dim)
 
-        self.output_layer = nn.Linear(enc_hidden_dim + dec_hidden_dim, decoder_vocab_count)
+        self.output_layer = nn.Linear(hidden_dim * 2, decoder_vocab_count)
 
         if gpu_id >= 0:
             self.device = torch.device('cuda:{}'.format(gpu_id))
@@ -320,42 +424,39 @@ class Seq2SeqWithGlobalAttention(nn.Module):
         encoder_masks = get_masks(encoder_inputs)
 
         input_candidates = inference_decoder.start(state)
-        for _ in range(seq_len):
+        for seq in range(seq_len):
             output_candidates = []
-            for (decoder_inputs, state), path, prob in input_candidates:
-                decoder_inputs = np.expand_dims(decoder_inputs, axis=0)
-                decoder_inputs = torch.LongTensor(decoder_inputs).to(self.device)
+            for state, all_outputs, paths, probs in input_candidates:
+                decoder_inputs = torch.LongTensor(
+                    paths[:, seq:seq+1].transpose(1, 0)).to(self.device)
                 decoder_outputs, state = self.decode(
                     decoder_inputs, state, encoder_outputs, encoder_masks)
-                output_candidates.append(((decoder_outputs, state), path, prob))
+                all_outputs = torch.cat(
+                    ([all_outputs] if all_outputs is not None else []) + [decoder_outputs])
+                output_candidates.append(((decoder_outputs[0], state), all_outputs, paths, probs))
 
             input_candidates = inference_decoder.decode(output_candidates)
 
-        return input_candidates[0][1][:, 1:]
+        return input_candidates[0][1], input_candidates[0][2][:, 1:]
 
 class TransformerDecoderBlock(nn.Module):
     def __init__(
             self,
-            input_dim,
-            attention_hidden_dim,
+            model_dim,
             head_count,
             feed_forward_hidden_dim,
             gpu_id=-1,
         ):
         super(TransformerDecoderBlock, self).__init__()
-        self.masked_attention = MultiHeadAttention(
-            input_dim, attention_hidden_dim, head_count, forward_masked=True
-        )
-        self.layer_norm_after_masked_attention = nn.LayerNorm(input_dim)
+        self.masked_attention = MultiHeadAttention(model_dim, head_count, forward_masked=True)
+        self.layer_norm_after_masked_attention = nn.LayerNorm(model_dim)
 
-        self.key_value_attention = MultiHeadAttention(
-            input_dim, attention_hidden_dim, head_count
-        )
-        self.layer_norm_after_key_value_attention = nn.LayerNorm(input_dim)
+        self.key_value_attention = MultiHeadAttention(model_dim, head_count)
+        self.layer_norm_after_key_value_attention = nn.LayerNorm(model_dim)
 
-        self.hidden_layer = nn.Linear(input_dim, feed_forward_hidden_dim)
-        self.output_layer = nn.Linear(feed_forward_hidden_dim, input_dim)
-        self.layer_norm_after_feed_forward = nn.LayerNorm(input_dim)
+        self.hidden_layer = nn.Linear(model_dim, feed_forward_hidden_dim)
+        self.output_layer = nn.Linear(feed_forward_hidden_dim, model_dim)
+        self.layer_norm_after_feed_forward = nn.LayerNorm(model_dim)
 
         if gpu_id >= 0:
             self.device = torch.device('cuda:{}'.format(gpu_id))
@@ -384,39 +485,38 @@ class TransformerEncoderDecoder(nn.Module):
             self,
             encoder_vocab_count,
             decoder_vocab_count,
-            emb_dim,
-            encoder_hidden_dim,
-            decoder_hidden_dim,
+            model_dim,
             head_count,
             feed_forward_hidden_dim,
-            block_count,
+            encoder_block_count,
+            decoder_block_count,
             gpu_id=-1,
         ):
         super(TransformerEncoderDecoder, self).__init__()
 
-        self.positional_encoder = PositionalEncoder(emb_dim)
+        self.positional_encoder = PositionalEncoder(model_dim)
 
         self.encoder_embedding_layer = nn.Embedding(
             encoder_vocab_count,
-            emb_dim,
+            model_dim,
         )
-        self.encoder_blocks = []
-        for _ in range(block_count):
+        self.encoder_blocks = nn.ModuleList([])
+        for _ in range(encoder_block_count):
             self.encoder_blocks.append(TransformerEncoderBlock(
-                emb_dim, encoder_hidden_dim, head_count, feed_forward_hidden_dim
+                model_dim, head_count, feed_forward_hidden_dim
             ))
 
         self.decoder_embedding_layer = nn.Embedding(
             decoder_vocab_count,
-            emb_dim,
+            model_dim,
         )
-        self.decoder_blocks = []
-        for _ in range(block_count):
+        self.decoder_blocks = nn.ModuleList([])
+        for _ in range(decoder_block_count):
             self.decoder_blocks.append(TransformerDecoderBlock(
-                emb_dim, decoder_hidden_dim, head_count, feed_forward_hidden_dim
+                model_dim, head_count, feed_forward_hidden_dim
             ))
 
-        self.output_layer = nn.Linear(emb_dim, decoder_vocab_count)
+        self.output_layer = nn.Linear(model_dim, decoder_vocab_count)
 
         if gpu_id >= 0:
             self.device = torch.device('cuda:{}'.format(gpu_id))
@@ -431,12 +531,10 @@ class TransformerEncoderDecoder(nn.Module):
             h += torch.Tensor(positional_encodes).to(self.device)
         encoder_masks = get_masks(encoder_inputs)
 
-        encoder_outputs = []
         for block in self.encoder_blocks:
             h = block(h, encoder_masks)
-            encoder_outputs.append(h)
 
-        return encoder_outputs, encoder_masks
+        return h, encoder_masks
 
     def decode(self, decoder_inputs, encoder_outputs, encoder_masks):
         h = self.decoder_embedding_layer(decoder_inputs)
@@ -445,11 +543,8 @@ class TransformerEncoderDecoder(nn.Module):
             h += torch.Tensor(positional_encodes).to(self.device)
         decoder_masks = get_masks(decoder_inputs)
 
-        for block, encoder_output in zip(
-                self.decoder_blocks,
-                encoder_outputs,
-            ):
-            h = block(h, encoder_output, decoder_masks, encoder_masks)
+        for block in self.decoder_blocks:
+            h = block(h, encoder_outputs, decoder_masks, encoder_masks)
 
         h = self.output_layer(h)
 
@@ -461,21 +556,23 @@ class TransformerEncoderDecoder(nn.Module):
 
         return decoder_outputs
 
-    def inference(self, encoder_inputs, begin_of_encode_index, seq_len):
-        encoder_outputs, encoder_masks = self.encode(encoder_inputs)
+    def inference(self, encoder_inputs, decoding_params):
+        state = None
 
-        mb_size = encoder_inputs.shape[0]
-        decoder_indices = np.empty((mb_size, seq_len + 1), dtype=np.int32)
-        decoder_indices[:, 0] = begin_of_encode_index
-        for i in range(seq_len):
-            decoder_inputs = decoder_indices[:, :i + 1]
-            decoder_outputs = self.decode(
-                decoder_inputs, encoder_outputs, encoder_masks)
-            decoder_probs = F.softmax(decoder_outputs[:, i:i + 1], dim=2).numpy()[:, 0]
-            decoder_probs = decoder_probs / np.sum(decoder_probs, axis=1, keepdims=True)
-            decoder_indices[:, i + 1] = np.array([
-                np.random.choice(decoder_probs.shape[1], p=decoder_probs[j])
-                for j in range(mb_size)
-            ])
+        inference_decoder = get_inference_decoder(decoding_params, encoder_inputs.shape[1])
+        seq_len = decoding_params['seq_len']
 
-        return decoder_indices
+        encoder_outputs, _ = self.encode(encoder_inputs)
+        encoder_masks = get_masks(encoder_inputs)
+
+        input_candidates = inference_decoder.start(state)
+        for seq in range(seq_len):
+            output_candidates = []
+            for _, _, paths, probs in input_candidates:
+                decoder_inputs = torch.LongTensor(paths[:, :seq+1].transpose(1, 0)).to(self.device)
+                all_outputs = self.decode(decoder_inputs, encoder_outputs, encoder_masks)
+                output_candidates.append(((all_outputs[-1], state), all_outputs, paths, probs))
+
+            input_candidates = inference_decoder.decode(output_candidates)
+
+        return input_candidates[0][1], input_candidates[0][2][:, 1:]
