@@ -1,0 +1,189 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [ "build_ext",
+            ]
+        },
+        {
+            "name": "Python: Train My Word2Vec",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_my_w2v.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--input_dir", "data/original/wikipedia_ja",
+                "--cache_dir", "data/cache/wikipedia_ja",
+                "--model_name_to_save", "data/model/my_w2v.bin",
+                "--epochs", "2"
+            ]
+        },
+        // {
+        //     "name": "Python: Gensim Word2Vec",
+        //     "type": "python",
+        //     "request": "launch",
+        //     "program": "${workspaceRoot}/examples/run_gensim_w2v.py",
+        //     "console": "integratedTerminal",
+        //     "justMyCode": false,
+        //     "args": [
+        //         "--input_dir", "data/original/wikipedia_ja",
+        //         "--cache_dir", "data/cache/wikipedia_ja",
+        //         "--model_name_to_save", "data/model/gensim_w2v.bin"
+        //     ]
+        // },
+        {
+            "name": "Python: Train Encoder Decoder",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_encoder_decoder.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--gpu_id", "-1",
+                // "--train_data", "data/cache/japaneseenglish-bilingual-corpus/BDS/train",
+                // "--valid_data", "data/cache/japaneseenglish-bilingual-corpus/BDS/valid",
+                "--train_data", "data/original/small_parallel_enja/train.ja", "data/original/small_parallel_enja/train.en",
+                "--valid_data", "data/original/small_parallel_enja/dev.ja", "data/original/small_parallel_enja/dev.en",
+                "--model", "global_attention",
+                "--bidirectional",
+                "--lang", "en_to_ja",
+                "--output_dir_format", "data/model/encoder_decoder/{date}",
+                "--model_name_format", "epoch-{epoch}.bin",
+                // "--model_params", "data/model/encoder_decoder/20200722_225815/model.json",
+                // "--initial_weight", "data/model/encoder_decoder/20200722_225815/epoch-24.bin",
+                "--optimizer", "sgd",
+                "-lr", "1e-3",
+                "--momentum", "0.9",
+                "--nesterov",
+                "-wd", "1e-5",
+                "--lr_scheduler", "cosine_annealing",
+                "--lr_decay", "0.1",
+                "--lr_steps", "0.1", "0.5", "0.75", "0.9",
+                "--min_lr", "1e-5",
+                "--epochs", "100",
+                "--mb_size", "16",
+                "--seed", "4",
+                "--decoding_type", "random_choice"
+            ]
+        },
+        {
+            "name": "Python: Inference Encoder Decoder",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/inference_encoder_decoder.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--gpu_id", "0",
+                // "--inference_data", "data/cache/japaneseenglish-bilingual-corpus/BDS/valid",
+                "--inference_data", "data/original/small_parallel_enja/dev.ja", "data/original/small_parallel_enja/dev.en",
+                "--lang", "en_to_ja",
+                "--model_params", "data/model/encoder_decoder/20200722_225815/model.json",
+                "--model_weight", "data/model/encoder_decoder/20200722_225815/epoch-6.bin",
+                "--preprocessor", "data/model/encoder_decoder/20200722_225815/preprocessor.bin",
+                "--decoding_type", "greedy_choice",
+                "--breadth_len", "8",
+                "--inference_csv", "data/model/encoder_decoder/20200722_225815/infenence.csv",
+                "--seed", "2",
+            ]
+        },
+        {
+            "name": "Python: Train CIFAR-10 Classifier",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_cifar10_classifier.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--gpu_id", "0",
+                "--train_image_npy_path", "data/preprocess/CIFAR-10/train_image.npy",
+                "--train_label_npy_path", "data/preprocess/CIFAR-10/train_label.npy",
+                "--test_image_npy_path", "data/preprocess/CIFAR-10/test_image.npy",
+                "--test_label_npy_path", "data/preprocess/CIFAR-10/test_label.npy",
+                "--output_dir_format", "data/model/cifar10/{date}",
+                "--model_name_format", "epoch-{epoch}.bin",
+                "--model", "res_net",
+                "--optimizer", "sgd",
+                "-lr", "1e-1",
+                "--momentum", "0.9", "--nesterov",
+                "-wd", "1e-4",
+                "--lr_scheduler", "multi_step",
+                "--lr_decay", "0.1",
+                "--lr_steps", "0.1", "0.5", "0.75", "0.9",
+                "--min_lr", "1e-5",
+                "--mb_size", "256",
+                "--epochs", "100",
+                "--seed", "200",
+            ]
+        },
+        {
+            "name": "Python: Access Colab",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/access_colab.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+            ]
+        },
+        {
+            "name": "Python: Unit Test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/test/python_unit_test.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+            ]
+        },
+        {
+            "name": "C++: gdb",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/mltools/model/word2vec_impl/word2vec_impl_cpp_naive_copy",
+            "args": ["<", "examples/input.txt"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "C++: Unit Test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/test/cpp_unit_test",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+    ]
+}

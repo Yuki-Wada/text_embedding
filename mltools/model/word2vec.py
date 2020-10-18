@@ -5,7 +5,9 @@ from typing import List, Union
 import numpy as np
 from gensim.corpora import Dictionary
 
-from mltools.model.word2vec_impl import get_sg_ns_grad # pylint: disable=no-name-in-module
+# from mltools.model.word2vec_impl.word2vec_impl_cython import get_sg_ns_grad # pylint: disable=import-error,no-name-in-module
+# from mltools.model.word2vec_impl.word2vec_impl_cpp_naive import get_sg_ns_grad # pylint: disable=import-error,no-name-in-module
+from mltools.model.word2vec_impl.word2vec_impl_cpp_eigen import get_sg_ns_grad # pylint: disable=import-error,no-name-in-module
 
 class MyWord2Vec:
     def __init__(

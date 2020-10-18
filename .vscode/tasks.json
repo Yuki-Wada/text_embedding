@@ -1,0 +1,72 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "C/C++: cpp build active file",
+			"command": "/usr/bin/g++",
+			"args": [
+				"-g",
+				"${file}",
+				"-o",
+				"${fileDirname}/${fileBasenameNoExtension}",
+				"-std=c++17",
+				"-mavx2",
+				"-I${workspaceFolder}/lib/eigen-3.3.7"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		},
+		{
+			"type": "shell",
+			"label": "C/C++: build test file",
+			"command": "/usr/bin/g++",
+			"args": [
+				"-g",
+				"${workspaceFolder}/cpp/test/segment_tree_test.cpp",
+				"${workspaceFolder}/cpp/test/max_flow_test.cpp",
+				"${workspaceFolder}/cpp/test/min_cost_flow_test.cpp",
+				"-o",
+				"${workspaceFolder}/cpp/test/test",
+				"-DLOCAL_ENV",
+				"-std=c++17",
+				"-I${workspaceFolder}/cpp/src"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"type": "shell",
+			"label": "C/C++: cpp build object file",
+			"command": "/usr/bin/g++",
+			"args": [
+				"-g",
+				"${file}",
+				"-c",
+				"-o",
+				"${fileDirname}/${fileBasenameNoExtension}.o",
+				"-std=c++11"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		}
+	]
+}

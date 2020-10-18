@@ -1,4 +1,3 @@
-import os
 import itertools
 import platform
 from setuptools import setup, Extension, find_packages
@@ -10,7 +9,7 @@ ext_modules = []
 
 c_extensions = {}
 cpp_extensions = {
-    'mltools.model.word2vec_impl': ['mltools/model/word2vec_impl.pyx']
+    'mltools.model.word2vec_impl.word2vec_impl_cython': ['mltools/model/word2vec_impl/word2vec_impl_cython.pyx'],
 }
 
 def make_c_ext(use_cython=False):
@@ -24,9 +23,9 @@ def make_cpp_ext(use_cython=False):
     system = platform.system()
 
     if system == 'Linux':
-        extra_args.append('-std=c++11')
+        extra_args.extend(['-std=c++11', '-I/mnt/i/Yuki/workspace/mltools/lib/eigen-3.3.7', '-mavx512f'])
     elif system == 'Darwin':
-        extra_args.extend(['-stdlib=libc++', '-std=c++11'])
+        extra_args.extend(['-stdlib=libc++', '-std=c++11', '-I/mnt/i/Yuki/workspace/mltools/lib/eigen-3.3.7', '-mavx512f'])
 
     for module, sources in cpp_extensions.items():
         if use_cython:
@@ -37,6 +36,7 @@ def make_cpp_ext(use_cython=False):
             language='c++',
             extra_compile_args=extra_args,
             extra_link_args=extra_args,
+            library_dirs=['model/word2vec_impl']
         )
 
 ext_modules = list(itertools.chain(
@@ -59,35 +59,11 @@ class CustomBuildExt(build_ext):
         import Cython.Build #pylint: disable=import-outside-toplevel
 
         self.include_dirs.append(np.get_include())
+        self.include_dirs.append('model/word2vec_impl')
         Cython.Build.cythonize(list(make_c_ext(use_cython=True)))
         Cython.Build.cythonize(list(make_cpp_ext(use_cython=True)))
 
 cmdclass = {'build_ext': CustomBuildExt}
-
-# Packages to install
-install_requires = [
-    'dill >= 0.3.1.1',
-    'tqdm >= 4.41.1',
-    'numpy >= 1.18.1',
-    'gensim >= 3.8.1',
-    'Cython == 0.29.15',
-]
-
-additional_requires = [
-    'pandas >= 0.25.3',
-    'scikit-learn >= 0.22.1',
-]
-install_requires += additional_requires
-
-deep_q_requires = [
-    'gym >= 0.16.0'
-]
-install_requires += deep_q_requires
-
-# if os.name == 'nt':
-#     install_requires.append('mecab-python-windows == 0.996.3')
-# else:
-#     install_requires.append('mecab-python3')
 
 # Setup Function
 setup(
@@ -107,9 +83,4 @@ setup(
     keywords='Word2Vec, w2v',
 
     zip_safe=False,
-
-    install_requires=install_requires,
-    dependency_links=[
-        'https://download.pytorch.org/whl/torch_stable.html'
-    ],
 )

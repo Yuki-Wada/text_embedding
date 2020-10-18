@@ -1,0 +1,32 @@
+{
+    "python.pythonPath": "C:\\Users\\yukiw\\.virtualenvs\\mltools-X4gK6d44\\Scripts\\python.exe",
+    "python.linting.pylintArgs": [
+        "--disable=C0103",
+        "--extension-pkg-whitelist=numpy, torch",
+        "--generated-members=numpy.*",
+        "--generated-members=torch.*",
+        "--generated-members=tensorflow.*",
+        "--ignored-modules=tensorflow.keras",
+        "--ignored-modules=torch",
+        "--not-callable=torch.*",
+    ],
+    "files.associations": {
+        "iostream": "cpp",
+        "core": "cpp",
+        "superlusupport": "cpp",
+        "*.evaluator": "cpp",
+        "*.traits": "cpp",
+        "adolcforward": "cpp",
+        "alignedvector3": "cpp",
+        "autodiff": "cpp",
+        "bvh": "cpp",
+        "eulerangles": "cpp",
+        "fft": "cpp",
+        "kroneckerproduct": "cpp",
+        "mprealsupport": "cpp",
+        "numericaldiff": "cpp",
+        "openglsupport": "cpp",
+        "specialfunctions": "cpp",
+        "splines": "cpp"
+    }
+}
