@@ -31,12 +31,12 @@ def get_args():
     parser.add_argument("--plot_interval", type=int, default=10000)
     parser.add_argument("--plot_count", type=int, default=10000)
 
-    parser.add_argument("--alpha", type=float, default=1e-1)
-    parser.add_argument("--discount", type=float, default=0.99)
+    parser.add_argument("--alpha", type=float, default=0.1)
+    parser.add_argument("--discount", type=float, default=0.95)
 
     parser.add_argument("--render", action='store_true')
 
-    parser.add_argument("--seed", type=int)
+    parser.add_argument("--seed", type=int, default=3)
 
     args = parser.parse_args()
 
@@ -63,69 +63,71 @@ class CartPoleQValue:
         self.action_num = action_num
         self.alpha = alpha
         self.discount = discount
+        self.epsilon = 0.2
 
         self.min_position = -2.4
         self.max_position = 2.4
-        self.position_unit = 0.1
-        self.position_size = int(
-            (self.max_position - self.min_position) / self.position_unit)
+        self.position_size = 6
 
-        self.min_velocity = -3.0
-        self.max_velocity = 3.0
-        self.velocity_unit = 0.1
-        self.velocity_size = int(
-            (self.max_velocity - self.min_velocity) / self.velocity_unit)
+        self.min_velocity = -2.0
+        self.max_velocity = 2.0
+        self.velocity_size = 6
 
-        self.min_angle = -2.4
-        self.max_angle = 2.4
-        self.angle_unit = 0.1
-        self.angle_size = int(
-            (self.max_angle - self.min_angle) / self.angle_unit)
+        self.min_angle = -0.5
+        self.max_angle = 0.5
+        self.angle_size = 6
 
-        self.min_angular_velocity = -2.0
-        self.max_angular_velocity = 2.0
-        self.angular_velocity_unit = 0.1
-        self.angular_velocity_size = int(
-            (self.max_angular_velocity - self.min_angular_velocity) / self.angular_velocity_unit)
+        self.min_angular_velocity = -1.5
+        self.max_angular_velocity = 1.5
+        self.angular_velocity_size = 6
 
-        self.q_value = np.random.random((
+        self.q_value = np.random.uniform(low=0, high=1, size=(
             self.position_size,
             self.velocity_size,
             self.angle_size,
             self.angular_velocity_size,
             self.action_num,
-        )) + 1
+        ))
+        self.q_value[0] = 0
+        self.q_value[-1] = 0
+        self.q_value[:, :, 0] = 0
+        self.q_value[:, :, -1] = 0
 
-    def state_to_index(self, state, action=None):
+    def state_to_index(self, state):
+        def bins(clip_min, clip_max, num):
+            return np.linspace(clip_min, clip_max, num + 1)[1:-1]
+
         position, velocity, angle, angular_velocity = state
-        position_index = int((position - self.min_position) / self.position_unit)
-        velocity_index = int((velocity - self.min_velocity) / self.velocity_unit)
-        angle_index = int((angle - self.min_angle) / self.angle_unit)
-        angular_velocity_index = int(
-            (angular_velocity - self.min_angular_velocity) / self.angular_velocity_unit)
 
-        position_index = min(position_index, self.position_size - 1)
-        velocity_index = min(velocity_index, self.velocity_size - 1)
-        angle_index = min(angle_index, self.angle_size - 1)
-        angular_velocity_index = min(angular_velocity_index, self.angular_velocity_size - 1)
-
-        if action:
-            return position_index, velocity_index, angle_index, angular_velocity_index, action
+        position_index = np.digitize(position, bins=bins(
+            self.min_position, self.max_position, self.position_size))
+        velocity_index = np.digitize(velocity, bins=bins(
+            self.min_velocity, self.max_velocity, self.velocity_size))
+        angle_index = np.digitize(angle, bins=bins(
+            self.min_angle, self.max_angle, self.angle_size))
+        angular_velocity_index = np.digitize(angular_velocity, bins=bins(
+            self.min_angular_velocity, self.max_angular_velocity, self.angular_velocity_size))
+        
         return position_index, velocity_index, angle_index, angular_velocity_index
 
     def get_q_value(self, state, action=None):
-        index = self.state_to_index(state, action)
+        index = self.state_to_index(state)
+        if action is None:
+            return self.q_value[index][action]
         return self.q_value[index]
 
     def get_action(self, state):
+        if np.random.uniform() <= self.epsilon:
+            return np.random.randint(0, self.action_num)
         return np.argmax(self.get_q_value(state))
 
     def update_q_value(self, curr_state, curr_action, next_state, next_reward):
-        curr_index = self.state_to_index(curr_state, curr_action)
-        self.q_value[curr_index] = (1 - self.alpha) * self.q_value[curr_index] + \
+        curr_index = self.state_to_index(curr_state)
+        self.q_value[curr_index][curr_action] = \
+            (1 - self.alpha) * self.q_value[curr_index][curr_action] + \
             self.alpha * (next_reward + self.discount * np.max(self.get_q_value(next_state)))
 
-        return self.q_value[curr_index]
+        return self.get_q_value(curr_state, curr_action)
 
 def setup_output_dir(output_dir_path, args):
     os.makedirs(output_dir_path, exist_ok=True)
@@ -151,6 +153,7 @@ def run():
 
             action = q_value.get_action(prev_state)
             state, reward, is_terminated, _ = env.step(action)
+            reward = -100 if is_terminated and t < 195 else 1 
 
             q_value.update_q_value(prev_state, action, state, reward)
 

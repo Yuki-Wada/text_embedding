@@ -19,23 +19,17 @@ https://taku910.github.io/mecab/
 ## CUDA
 - CUDA 10.2
 
-## pipenv
-GPU で TensorFlow を使用するために必要。  
-TensorFlow は他ツールのバージョン指定が厳しい。依存関係は以下の通り。
-```
-pip install pipenv
-pipenv install
-```
-
 # 使い方
-## 実行方法
-- Seq2Seq モデル
-    1. japaneseenglish-bilingual-corpus.zip を解凍する。
-    1. bilingual_data_set.py を実行し、解凍データからトークナイズ済みのデータを生成する。
-    1. run_encoder_decoder.py を実行し、トークナイズ済みのデータから Seq2Seq モデルを学習する。
+## スクリプト実行例
+- Example: Cart Pole の Q 学習
+    ```
+    python examples/train_cart_pole.py \
+        --alpha 0.1 \
+        --discount 0.99 \
+        --render
+    ```
 
-## スクリプト
-- Example: train_gensim_w2v.py
+- Example: Gensim の Word2Vec モデル
     ```
     python examples/train_gensim_w2v.py \
         --input_dir data/original/wikipedia_ja \
@@ -53,7 +47,7 @@ pipenv install
         --seed 0
     ```
 
-- Example: train_my_w2v.py
+- Example: 自作 Word2Vec モデル
     ```
     python examples/train_my_w2v.py \
         --input_dir data/original/wikipedia_ja \
@@ -72,14 +66,14 @@ pipenv install
         --seed 0
     ```
 
-- Example: bilingual_data_set.py
+- Example: データセットの作成
     ```
     python examples/preprocess/bilingual_data_set.py \
         "--input_dir" "data/original/japaneseenglish-bilingual-corpus/wiki_corpus_2.01" \
         "--cache_dir" "data/cache/japaneseenglish-bilingual-corpus"
     ```
 
-- Example: train_encoder_decoder.py
+- Example: Encoder-Decoder モデルの学習
     ```
     python "examples/train_encoder_decoder.py" \
         "--train_data" "data/original/small_parallel_enja/train.ja" "data/original/small_parallel_enja/train.en" \
@@ -100,7 +94,7 @@ pipenv install
         "--seed" "2"
     ```
 
-- Example: train_cifar10_classifier.py
+- Example: Cifar 10 画像分類モデルの学習
     ```
     python "examples/train_cifar10_classifier.py" \
         "--train_image_npy_path" "data/preprocess/CIFAR-10/train_image.npy" \
@@ -121,13 +115,3 @@ pipenv install
         "--epochs" "100" \
         "--seed" "2"
     ```
-
-- Example: train_cart_pole.py
-    ```
-    python examples/train_cart_pole.py
-    ```
-
-# ToDo
-- Metric
-- Pipfile 周りの対応
-- Linux (主に Ubuntu) 対応
