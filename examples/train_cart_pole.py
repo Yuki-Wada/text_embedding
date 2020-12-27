@@ -14,7 +14,9 @@ import os
 import argparse
 import logging
 from itertools import product
-from queue import Queue
+import random
+from queue import Queue, PriorityQueue
+import heapq
 import numpy as np
 import gym
 import matplotlib.pyplot as plt
@@ -22,6 +24,10 @@ from matplotlib.ticker import MaxNLocator
 from mltools.utils import set_seed, set_logger, dump_json
 
 logger = logging.getLogger(__name__)
+
+def setup_output_dir(output_dir_path, args):
+    os.makedirs(output_dir_path, exist_ok=True)
+    dump_json(args, os.path.join(output_dir_path, 'args.json'))
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -38,6 +44,7 @@ def get_args():
     parser.add_argument("--alpha", type=float, default=0.1)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--epsilon", type=float, default=0.1)
+    parser.add_argument("--lambda_value", type=float, default=0.2)
 
     parser.add_argument("--render", action='store_true')
 
@@ -117,126 +124,11 @@ class CartPoleStateConverter:
 
         return q_value
 
-    def state_to_index2(self, state):
-        def bins(clip_min, clip_max, num):
-            return np.linspace(clip_min, clip_max, num + 1)[1:-1]
-
-        position, velocity, angle, angular_velocity = state
-
-        position_index = np.digitize(position, bins=bins(
-            self.min_position, self.max_position, self.position_size))
-        velocity_index = np.digitize(velocity, bins=bins(
-            self.min_velocity, self.max_velocity, self.velocity_size))
-        angle_index = np.digitize(angle, bins=bins(
-            self.min_angle, self.max_angle, self.angle_size))
-        angular_velocity_index = np.digitize(angular_velocity, bins=bins(
-            self.min_angular_velocity, self.max_angular_velocity, self.angular_velocity_size))
-        
-        return position_index + velocity_index * 6 + angle_index * 36 + angular_velocity_index * 216
-
-    def get_initial_v_value(self):
-        v_value = np.random.uniform(low=0, high=1, size=(
-            self.position_size,
-            self.velocity_size,
-            self.angle_size,
-            self.angular_velocity_size,
-        ))
-        v_value[0] = 0
-        v_value[-1] = 0
-        v_value[:, :, 0] = 0
-        v_value[:, :, -1] = 0
-
-        v_value = v_value.reshape(-1)
-
-        return v_value
-
 def get_action(q_value, state_converter, state):
     index = state_converter.state_to_index(state)
     if np.random.uniform() <= state_converter.epsilon:
         return np.random.randint(0, state_converter.action_num)
     return np.argmax(q_value[index])
-
-def setup_output_dir(output_dir_path, args):
-    os.makedirs(output_dir_path, exist_ok=True)
-    dump_json(args, os.path.join(output_dir_path, 'args.json'))
-
-def get_transition_prob(env, state_converter):
-    action = 0
-    appearances = np.random.uniform(low=0, high=1, size=(
-        6 * 6 * 6 * 6,
-        2,
-        6 * 6 * 6 * 6,
-        2,
-    ))
-    for _ in range(100000 * 2):
-        curr_state = env.reset()
-        action = 1 - action
-        next_state, reward, is_terminated, _ = env.step(action)
-        if is_terminated:
-            reward_index = 1
-        else:
-            reward_index = 0
-        
-        curr_state_index = state_converter.state_to_index2(curr_state)
-        next_state_index = state_converter.state_to_index2(next_state)
-
-        appearances[next_state_index][reward_index][curr_state_index][action] += 1
-
-    transition_prob = np.empty_like(appearances)
-    for state in range(1296):
-        transition_prob[state][0] = appearances[state][0] / (np.sum(appearances[state][0]) + 1e-18)
-        transition_prob[state][1] = appearances[state][1] / (np.sum(appearances[state][1]) + 1e-18)
-
-    return transition_prob
-
-def value_iteration(
-        env,
-        state_converter,
-        alpha=0.1,
-        gamma=0.95,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
-    def update_v_value(v_value, transition_prob):
-        rewards = np.expand_dims(np.array([1, -10]), axis=(1, 2))
-
-        v_value = np.max(
-            np.sum(
-                transition_prob * (rewards + np.expand_dims(v_value, axis=(0, 2))), axis=(0, 1),
-            ), axis=-1
-        )
-
-    transition_prob = get_transition_prob(env, state_converter)
-    v_value = state_converter.get_initial_v_value()
-
-    time_steps = []
-    for i in range(episode_count):
-        update_v_value(v_value, transition_prob)
-
-        prev_state = env.reset()
-        for t in range(1000):
-            if render:
-                env.render()
-
-            vs = []
-            for action in range(2):
-                state, _, _, _ = env.step(action)
-                state_index = state_converter.state_to_index2(state)
-                vs.append(v_value[state_index])
-                env.state = prev_state
-            action = np.argmax(vs)
-
-            state, _, is_terminated, _ = env.step(action)
-
-            prev_state = state
-            if is_terminated:
-                print("Episode {} finished after {} timesteps".format(i, t + 1))
-                time_steps.append(t + 1)
-                break
-
-        if (i + 1) % 20 == 0:
-            plot(time_steps, 'Time Step', figure_path)
 
 def monte_carlo(
         env,
@@ -281,9 +173,9 @@ def monte_carlo(
                 break
 
         G = 0
-        for state, action, reward, use in quadruplet[::-1]:
+        for state, action, reward, first_flag in quadruplet[::-1]:
             G = G * gamma + reward
-            if use:
+            if first_visit and first_flag:
                 update_q_value(q_value, state, action, G)
 
         if (i + 1) % 20 == 0:
@@ -299,43 +191,56 @@ def sarsa(
         render=False,
         figure_path=None,
     ):
-    def update_q_value(q_value, prev_state, prev_action, state, action, next_reward):
+    gamma_n = gamma ** n_step
+    def update_q_value(q_value, prev_state, prev_action, state, action, return_value):
         prev_index = state_converter.state_to_index(prev_state)
-        index = state_converter.state_to_index(state)
-
-        q_value[prev_index][prev_action] = \
-            (1 - alpha) * q_value[prev_index][prev_action] + \
-            alpha * (next_reward + gamma * q_value[index][action])
+        delta = return_value - q_value[prev_index][prev_action]
+        if state is not None:
+            index = state_converter.state_to_index(state)
+            delta += gamma_n * q_value[index][action]
+        q_value[prev_index][prev_action] += alpha * delta
 
     q_value = state_converter.get_initial_q_value()
 
     queue = Queue()
-    gamma_n = gamma ** n_step
 
     time_steps = []
     for i in range(episode_count):
         if not queue.empty():
             queue.get_nowait()
         for _ in range(n_step):
-            queue.put(0)
+            queue.put((None, None, 0))
+        queue.get()
 
         G = 0
         prev_state = env.reset()
-        prev_action = None
+        prev_action = get_action(q_value, state_converter, prev_state)
         for t in range(1000):
             if render:
                 env.render()
 
-            action = get_action(q_value, state_converter, prev_state)
-            state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < 195 else 1 
+            state, reward, is_terminated, _ = env.step(prev_action)
+            reward = -100 if is_terminated and t < 195 else 1
+            action = get_action(q_value, state_converter, state)
 
-            if prev_action is not None:
-                update_q_value(q_value, prev_state, prev_action, state, action, reward)
+            queue.put((prev_state, prev_action, reward))
+            target_state, target_action, target_reward = queue.get()
+            G += reward * gamma_n
+            G /= gamma
+
+            if t + 1 >= n_step and target_state is not None:
+                update_q_value(q_value, target_state, target_action, state, action, G)
+            G -= target_reward
 
             prev_state = state
             prev_action = action
             if is_terminated:
+                while not queue.empty():
+                    target_state, target_action, target_reward = queue.get()
+                    G /= gamma
+                    update_q_value(q_value, target_state, target_action, None, None, G)
+                    G -= target_reward
+
                 print("Episode {} finished after {} timesteps".format(i, t + 1))
                 time_steps.append(t + 1)
                 break
@@ -353,24 +258,26 @@ def q_learning(
         render=False,
         figure_path=None,
     ):
-    def update_q_value(q_value, curr_state, curr_action, next_state, next_reward):
-        curr_index = state_converter.state_to_index(curr_state)
-        next_index = state_converter.state_to_index(next_state)
-        q_value[curr_index][curr_action] = \
-            (1 - alpha) * q_value[curr_index][curr_action] + \
-            alpha * (next_reward + gamma * np.max(q_value[next_index]))
+    gamma_n = gamma ** n_step
+    def update_q_value(q_value, prev_state, action, state, return_value):
+        prev_index = state_converter.state_to_index(prev_state)
+        delta = return_value - q_value[prev_index][action]
+        if state is not None:
+            index = state_converter.state_to_index(state)
+            delta += gamma_n * np.max(q_value[index])
+        q_value[prev_index][action] += alpha * delta
 
     q_value = state_converter.get_initial_q_value()
 
     queue = Queue()
-    gamma_n = gamma ** n_step
 
     time_steps = []
     for i in range(episode_count):
         if not queue.empty():
             queue.get_nowait()
         for _ in range(n_step):
-            queue.put(0)
+            queue.put((None, None, 0))
+        queue.get()
 
         G = 0
         prev_state = env.reset()
@@ -380,13 +287,73 @@ def q_learning(
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -10 if is_terminated and t < 195 else 1 
-            G = G * gamma + reward
-            queue.put(reward)
-            G -= queue.get() * gamma_n
+            reward = -100 if is_terminated and t < 195 else 1 
 
-            if t + 1 >= n_step:
-                update_q_value(q_value, prev_state, action, state, reward)
+            queue.put((prev_state, action, reward))
+            target_state, target_action, target_reward = queue.get()
+            G += reward * gamma_n
+            G /= gamma
+
+            if t + 1 >= n_step and target_state is not None:
+                update_q_value(q_value, target_state, target_action, state, G)
+            G -= target_reward
+
+            prev_state = state
+            if is_terminated:
+                while not queue.empty():
+                    target_state, target_action, target_reward = queue.get()
+                    G /= gamma
+                    update_q_value(q_value, target_state, target_action, None, G)
+                    G -= target_reward
+
+                print("Episode {} finished after {} timesteps".format(i, t + 1))
+                time_steps.append(t + 1)
+                break
+        
+        if (i + 1) % 20 == 0:
+            plot(time_steps, 'Time Step', figure_path)
+
+def dyna_q(
+        env,
+        state_converter,
+        n_step=1,
+        alpha=0.1,
+        gamma=0.95,
+        episode_count=2000,
+        render=False,
+        figure_path=None,
+    ):
+    def update_q_value(q_value, prev_state_index, action, state_index, reward):
+        delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+        q_value[prev_state_index][action] += alpha * delta
+
+    q_value = state_converter.get_initial_q_value()
+    model = dict()
+    memory = set()
+
+    time_steps = []
+    for i in range(episode_count):
+        prev_state = env.reset()
+        for t in range(1000):
+            if render:
+                env.render()
+
+            action = get_action(q_value, state_converter, prev_state)
+            state, reward, is_terminated, _ = env.step(action)
+            reward = -100 if is_terminated and t < 195 else 1 
+
+            prev_state_index = state_converter.state_to_index(prev_state)
+            state_index = state_converter.state_to_index(state)
+
+            update_q_value(q_value, prev_state_index, action, state_index, reward)
+
+            model[(prev_state_index, action)] = (state_index, reward)
+            memory.add((prev_state_index, action))
+            
+            for memory_prev_state_index, memory_action in random.sample(memory, min(n_step, len(memory))):
+                memory_state_index, memory_reward = model[(memory_prev_state_index, memory_action)]
+                update_q_value(
+                    q_value, memory_prev_state_index, memory_action, memory_state_index, memory_reward)
 
             prev_state = state
             if is_terminated:
@@ -397,36 +364,25 @@ def q_learning(
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
-def backward_sarsa(
+def prioritized_sweeping(
         env,
         state_converter,
         n_step=1,
         alpha=0.1,
         gamma=0.95,
+        thre=1.0,
         episode_count=2000,
         render=False,
         figure_path=None,
     ):
-    def update_q_value(q_value, curr_state, curr_action, next_state, next_reward):
-        curr_index = state_converter.state_to_index(curr_state)
-        next_index = state_converter.state_to_index(next_state)
-        q_value[curr_index][curr_action] = \
-            (1 - alpha) * q_value[curr_index][curr_action] + \
-            alpha * (next_reward + gamma * np.max(q_value[next_index]))
 
     q_value = state_converter.get_initial_q_value()
-
-    queue = Queue()
-    gamma_n = gamma ** n_step
+    model = dict()
+    state_in_retro = dict()
+    p_queue = PriorityQueue()
 
     time_steps = []
     for i in range(episode_count):
-        if not queue.empty():
-            queue.get_nowait()
-        for _ in range(n_step):
-            queue.put(0)
-
-        G = 0
         prev_state = env.reset()
         for t in range(1000):
             if render:
@@ -434,13 +390,33 @@ def backward_sarsa(
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -10 if is_terminated and t < 195 else 1 
-            G = G * gamma + reward
-            queue.put(reward)
-            G -= queue.get() * gamma_n
+            reward = -100 if is_terminated and t < 195 else 1 
 
-            if t + 1 >= n_step:
-                update_q_value(q_value, prev_state, action, state, reward)
+            prev_state_index = state_converter.state_to_index(prev_state)
+            state_index = state_converter.state_to_index(state)
+
+            delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+            q_value[prev_state_index][action] += alpha * delta
+            if -abs(delta) > thre:
+                p_queue.put((-abs(delta), prev_state_index, action))
+            model[(prev_state_index, action)] = (state_index, reward)
+            if state_index not in state_in_retro:
+                state_in_retro[state_index] = set()
+            state_in_retro[state_index].add((prev_state_index, action, reward))
+
+            for _ in range(n_step):
+                if p_queue.empty():
+                    break
+                _, memory_prev_state_index, memory_action = p_queue.get()
+                memory_state_index, memory_reward = model[(memory_prev_state_index, memory_action)]
+                delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+                q_value[prev_state_index][action] += alpha * delta
+
+                if memory_prev_state_index in state_in_retro:
+                    for s_bar, a_bar, r_bar in state_in_retro[memory_prev_state_index]:
+                        delta = r_bar + gamma * np.max(q_value[memory_prev_state_index]) - q_value[s_bar][a_bar]
+                        if -abs(delta) > thre:
+                            p_queue.put((-abs(delta), s_bar, a_bar))
 
             prev_state = state
             if is_terminated:
@@ -448,6 +424,57 @@ def backward_sarsa(
                 time_steps.append(t + 1)
                 break
         
+        if (i + 1) % 20 == 0:
+            plot(time_steps, 'Time Step', figure_path)
+
+def sarsa_lambda(
+        env,
+        state_converter,
+        alpha=0.1,
+        gamma=0.95,
+        lambda_value=0.2,
+        episode_count=2000,
+        render=False,
+        figure_path=None,
+    ):
+    alpha *= 1 - lambda_value
+    q_value = state_converter.get_initial_q_value()
+
+    time_steps = []
+    for i in range(episode_count):
+        z = np.zeros_like(q_value)
+        prev_state = env.reset()
+        prev_action = get_action(q_value, state_converter, prev_state)
+        q_value_old = 0
+        for t in range(1000):
+            if render:
+                env.render()
+
+            state, reward, is_terminated, _ = env.step(prev_action)
+            reward = -100 if is_terminated and t < 195 else 1
+            action = get_action(q_value, state_converter, state)
+
+            if prev_action is not None:
+                prev_index = state_converter.state_to_index(prev_state)
+                index = state_converter.state_to_index(state)
+
+                delta = reward + gamma * q_value[index][action] - q_value[prev_index][prev_action]
+
+                x = np.zeros_like(q_value)                
+                x[prev_index][prev_action] = 1
+                z = gamma * lambda_value * z + (1 - alpha * gamma * lambda_value * z[prev_index][prev_action]) * x
+                
+                q_value += alpha * (delta + q_value[prev_index][prev_action] - q_value_old) * z
+                q_value -= alpha * (q_value[prev_index][prev_action] - q_value_old) * x
+                q_value_old = q_value[index][action]
+
+            prev_state = state
+            prev_action = action
+            if is_terminated:
+                print("Episode {} finished after {} timesteps".format(i, t + 1))
+                time_steps.append(t + 1)
+                break
+
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
@@ -462,16 +489,7 @@ def run():
     state_converter = CartPoleStateConverter(epsilon=args.epsilon)
 
     env = gym.make('CartPole-v0')
-    if args.algorithm == 'valueiter':
-        value_iteration(
-            env,
-            state_converter,
-            gamma=args.gamma,
-            episode_count=args.episode_count,
-            render=args.render,
-            figure_path=figure_path,
-        )
-    elif args.algorithm == 'montecarlo':
+    if args.algorithm == 'montecarlo':
         monte_carlo(
             env,
             state_converter,
@@ -499,6 +517,39 @@ def run():
             n_step=args.n_step,
             alpha=args.alpha,
             gamma=args.gamma,
+            episode_count=args.episode_count,
+            render=args.render,
+            figure_path=figure_path,
+        )
+    elif args.algorithm == 'dynaq':
+        dyna_q(
+            env,
+            state_converter,
+            n_step=args.n_step,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            episode_count=args.episode_count,
+            render=args.render,
+            figure_path=figure_path,
+        )
+    elif args.algorithm == 'prioritized':
+        prioritized_sweeping(
+            env,
+            state_converter,
+            n_step=args.n_step,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            episode_count=args.episode_count,
+            render=args.render,
+            figure_path=figure_path,
+        )
+    elif args.algorithm == 'sarsalambda':
+        sarsa_lambda(
+            env,
+            state_converter,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            lambda_value=args.lambda_value,
             episode_count=args.episode_count,
             render=args.render,
             figure_path=figure_path,
