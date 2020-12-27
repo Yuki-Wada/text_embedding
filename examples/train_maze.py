@@ -1,14 +1,6 @@
 """
-Train a Q-Value.
+Train in the Maze Task.
 """
-# state:
-#       cart's position: -2.4 - 2.4
-#       cart's velocity: -3.0 - 3.0
-#       bar's angle (radian):   -2.4 - 2.4
-#       bar's angular velocity(radian): -2.0 - 2.0
-# termination:
-#       cart's position > 2.4 or cart's position< -2.4
-#       bar's angle > 15 / 2 / pi or bar's angle < 15 / 2 / pi
 
 import os
 import argparse
@@ -33,7 +25,7 @@ def get_args():
 
     parser.add_argument("--iter_count", type=int, default=100)
 
-    parser.add_argument("--algorithm", default='montecarlo')
+    parser.add_argument("--algorithm", default='valueiter')
     parser.add_argument("--n_step", type=int, default=1)
     parser.add_argument("--first_visit", action='store_true')
 

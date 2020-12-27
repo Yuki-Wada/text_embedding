@@ -1,8 +1,8 @@
 __pycache__/
-.vscode/
 build/
 data/
 dist/
+lib/eigen-3.3.7/
 experiments/
 logs/
 venv/
@@ -11,3 +11,4 @@ venv/
 *.pyd
 *.so
 scripts/template.ps1
+mltools/cudnn/

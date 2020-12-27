@@ -11,8 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": [ "build_ext",
-            ]
+            "args": []
         },
         {
             "name": "Python: Train My Word2Vec",
@@ -124,6 +123,43 @@
                 "--mb_size", "256",
                 "--epochs", "100",
                 "--seed", "200",
+            ]
+        },
+        {
+            "name": "Python: Train Cart Pole",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_cart_pole.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--algorithm", "prioritized",
+                "--n_step", "4",
+                "--first_visit",
+                "--alpha", "0.5",
+                "--gamma", "0.9",
+                "--lambda", "0.8",
+                "--epsilon", "0.1",
+                "--seed", "0",
+                "--render",
+            ]
+        },
+        {
+            "name": "Python: Train Maze",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_maze.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--algorithm", "valueiter",
+                "--n_step", "4",
+                "--first_visit",
+                "--alpha", "0.5",
+                "--gamma", "0.9",
+                "--epsilon", "0.1",
+                "--seed", "0",
+                "--render",
             ]
         },
         {

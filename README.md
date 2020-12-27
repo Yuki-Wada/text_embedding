@@ -21,14 +21,6 @@ https://taku910.github.io/mecab/
 
 # 使い方
 ## スクリプト実行例
-- Example: Cart Pole の Q 学習
-    ```
-    python examples/train_cart_pole.py \
-        --alpha 0.1 \
-        --discount 0.99 \
-        --render
-    ```
-
 - Example: Gensim の Word2Vec モデル
     ```
     python examples/train_gensim_w2v.py \
@@ -114,4 +106,17 @@ https://taku910.github.io/mecab/
         "--mb_size" "256" \
         "--epochs" "100" \
         "--seed" "2"
+    ```
+
+- Example: Cart Pole タスクの強化学習
+    ```
+    python examples/train_cart_pole.py \
+        --alpha 0.1 \
+        --gamma 0.99 \
+        --render
+    ```
+
+- Example: 迷路タスクの強化学習
+    ```
+    python examples/train_maze.py
     ```
