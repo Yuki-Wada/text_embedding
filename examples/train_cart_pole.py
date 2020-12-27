@@ -357,7 +357,7 @@ def dyna_q(
 
             prev_state = state
             if is_terminated:
-                print("Episode {} finished after {} timesteps".format(i, t + 1))
+                print(f'Episode {i} finished after {t + 1} timesteps')
                 time_steps.append(t + 1)
                 break
         
