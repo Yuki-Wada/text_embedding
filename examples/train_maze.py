@@ -1,5 +1,5 @@
 """
-Train in the Maze Task.
+Train a maze task.
 """
 
 import os

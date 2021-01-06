@@ -1,5 +1,5 @@
 """
-Train a Q-Value.
+Train a cart pole task.
 """
 # state:
 #       cart's position: -2.4 - 2.4
@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument("--output_dir", default='data/model/cart_pole/')
     parser.add_argument('--time_step_plot', default='time_step.png')
 
+    parser.add_argument("--max_steps", type=int, default=200)
     parser.add_argument("--episode_count", type=int, default=2000)
 
     parser.add_argument("--algorithm", default='montecarlo')
@@ -133,6 +134,7 @@ def get_action(q_value, state_converter, state):
 def monte_carlo(
         env,
         state_converter,
+        max_steps=200,
         first_visit=False,
         gamma=0.95,
         episode_count=2000,
@@ -154,13 +156,13 @@ def monte_carlo(
         quadruplet = []
         prev_state = env.reset()
         seen_in_episode = set()
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -10 if is_terminated and t < 195 else 1
+            reward = -10 if is_terminated and t < int(max_steps * 0.975) else 1
 
             idx = state_converter.state_to_index(state)
             quadruplet.append((prev_state, action, reward, (idx, action) not in seen_in_episode))
@@ -184,6 +186,7 @@ def monte_carlo(
 def sarsa(
         env,
         state_converter,
+        max_steps=200,
         n_step=1,
         alpha=0.1,
         gamma=0.95,
@@ -215,12 +218,12 @@ def sarsa(
         G = 0
         prev_state = env.reset()
         prev_action = get_action(q_value, state_converter, prev_state)
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             state, reward, is_terminated, _ = env.step(prev_action)
-            reward = -100 if is_terminated and t < 195 else 1
+            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1
             action = get_action(q_value, state_converter, state)
 
             queue.put((prev_state, prev_action, reward))
@@ -251,6 +254,7 @@ def sarsa(
 def q_learning(
         env,
         state_converter,
+        max_steps=200,
         n_step=1,
         alpha=0.1,
         gamma=0.95,
@@ -281,13 +285,13 @@ def q_learning(
 
         G = 0
         prev_state = env.reset()
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < 195 else 1 
+            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
 
             queue.put((prev_state, action, reward))
             target_state, target_action, target_reward = queue.get()
@@ -316,6 +320,7 @@ def q_learning(
 def dyna_q(
         env,
         state_converter,
+        max_steps=200,
         n_step=1,
         alpha=0.1,
         gamma=0.95,
@@ -334,13 +339,13 @@ def dyna_q(
     time_steps = []
     for i in range(episode_count):
         prev_state = env.reset()
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < 195 else 1 
+            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
 
             prev_state_index = state_converter.state_to_index(prev_state)
             state_index = state_converter.state_to_index(state)
@@ -367,6 +372,7 @@ def dyna_q(
 def prioritized_sweeping(
         env,
         state_converter,
+        max_steps=200,
         n_step=1,
         alpha=0.1,
         gamma=0.95,
@@ -384,13 +390,13 @@ def prioritized_sweeping(
     time_steps = []
     for i in range(episode_count):
         prev_state = env.reset()
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < 195 else 1 
+            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
 
             prev_state_index = state_converter.state_to_index(prev_state)
             state_index = state_converter.state_to_index(state)
@@ -430,6 +436,7 @@ def prioritized_sweeping(
 def sarsa_lambda(
         env,
         state_converter,
+        max_steps=200,
         alpha=0.1,
         gamma=0.95,
         lambda_value=0.2,
@@ -446,12 +453,12 @@ def sarsa_lambda(
         prev_state = env.reset()
         prev_action = get_action(q_value, state_converter, prev_state)
         q_value_old = 0
-        for t in range(1000):
+        for t in range(max_steps):
             if render:
                 env.render()
 
             state, reward, is_terminated, _ = env.step(prev_action)
-            reward = -100 if is_terminated and t < 195 else 1
+            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1
             action = get_action(q_value, state_converter, state)
 
             if prev_action is not None:
@@ -488,11 +495,19 @@ def run():
 
     state_converter = CartPoleStateConverter(epsilon=args.epsilon)
 
-    env = gym.make('CartPole-v0')
+    gym.envs.registration.register(
+        id='CartPole-v2',
+        entry_point='gym.envs.classic_control:CartPoleEnv',
+        max_episode_steps=args.max_steps,
+        reward_threshold=int(args.max_steps * 0.975),
+    )
+
+    env = gym.make('CartPole-v2')
     if args.algorithm == 'montecarlo':
         monte_carlo(
             env,
             state_converter,
+            max_steps=args.max_steps,
             first_visit=args.first_visit,
             gamma=args.gamma,
             episode_count=args.episode_count,
@@ -503,6 +518,7 @@ def run():
         sarsa(
             env,
             state_converter,
+            max_steps=args.max_steps,
             n_step=args.n_step,
             alpha=args.alpha,
             gamma=args.gamma,
@@ -514,6 +530,7 @@ def run():
         q_learning(
             env,
             state_converter,
+            max_steps=args.max_steps,
             n_step=args.n_step,
             alpha=args.alpha,
             gamma=args.gamma,
@@ -525,6 +542,7 @@ def run():
         dyna_q(
             env,
             state_converter,
+            max_steps=args.max_steps,
             n_step=args.n_step,
             alpha=args.alpha,
             gamma=args.gamma,
@@ -536,6 +554,7 @@ def run():
         prioritized_sweeping(
             env,
             state_converter,
+            max_steps=args.max_steps,
             n_step=args.n_step,
             alpha=args.alpha,
             gamma=args.gamma,
@@ -547,6 +566,7 @@ def run():
         sarsa_lambda(
             env,
             state_converter,
+            max_steps=args.max_steps,
             alpha=args.alpha,
             gamma=args.gamma,
             lambda_value=args.lambda_value,

@@ -133,7 +133,8 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--algorithm", "prioritized",
+                "--algorithm", "sarsalambda",
+                "--max_steps", "1000",
                 "--n_step", "4",
                 "--first_visit",
                 "--alpha", "0.5",
