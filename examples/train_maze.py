@@ -9,7 +9,10 @@ from itertools import product
 import random
 from queue import Queue
 import numpy as np
-import gym
+
+import pyglet
+from pyglet import shapes
+
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from mltools.utils import set_seed, set_logger, dump_json
@@ -61,6 +64,79 @@ def plot(values, label, figure_path):
     plt.savefig(figure_path)
     plt.close()
 
+class Drawer:
+    GRID_SIZE = 30
+    MAP_COLORS = {
+        0: (255, 255, 255),
+        1: (0, 0, 0),
+    }
+
+    def __init__(self, row_num, col_num, start, goal):
+        self.row_num = row_num
+        self.col_num = col_num
+        self.start = start
+        self.goal = goal
+
+        self._window = pyglet.window.Window(Drawer.GRID_SIZE * self.row_num, Drawer.GRID_SIZE * self.col_num)
+        self._window.set_caption("MARKOVDP-RL PLAYGROUND")
+
+    def draw(self, maze, state, v_value=None):
+        self._window.clear()
+        y = maze.shape[0]
+        for pos_y in range(self.row_num):
+            for pos_x in range(self.col_num):
+                color = Drawer.MAP_COLORS[maze[pos_y, pos_x]]
+                grid_shape = shapes.Rectangle(
+                    x=pos_x * Drawer.GRID_SIZE,
+                    y=(self.row_num - pos_y - 1) * Drawer.GRID_SIZE,
+                    width=Drawer.GRID_SIZE,
+                    height=Drawer.GRID_SIZE,
+                    color=color,
+                )
+                grid_shape.draw()
+
+        y, x = state
+        grid_shape = shapes.Circle(
+            x=(x + 0.5) * Drawer.GRID_SIZE,
+            y=(self.row_num - y - 0.5) * Drawer.GRID_SIZE,
+            radius=Drawer.GRID_SIZE // 2,
+            color=(0, 0, 255),
+        )
+        grid_shape.draw()
+
+        y, x = self.start
+        grid_shape = shapes.Rectangle(
+            x=x * Drawer.GRID_SIZE,
+            y=(self.row_num - y - 1) * Drawer.GRID_SIZE,
+            width=Drawer.GRID_SIZE,
+            height=Drawer.GRID_SIZE,
+            color=(0, 255, 0),
+        )
+        grid_shape.draw()
+
+        y, x = self.goal
+        grid_shape = shapes.Rectangle(
+            x=x * Drawer.GRID_SIZE,
+            y=(self.row_num - y - 1) * Drawer.GRID_SIZE,
+            width=Drawer.GRID_SIZE,
+            height=Drawer.GRID_SIZE,
+            color=(255, 0, 0),
+        )
+        grid_shape.draw()
+
+        if v_value is not None:
+            pass
+
+        self._tick()
+
+    def _tick(self):
+        pyglet.clock.tick()
+        for window in pyglet.app.windows:
+            window.switch_to()
+            window.dispatch_events()
+            window.dispatch_event("on_draw")
+            window.flip()
+
 class MazeEnvironment: 
     def __init__(self, maze_file):
         self.row = 0
@@ -95,6 +171,8 @@ class MazeEnvironment:
             raise ValueError('It is not permitted that no goal exists.')
         
         self.state = self.start
+
+        self.drawer = Drawer(self.row, self.col, self.start, self.goal)
 
     def reset(self):
         self.state = self.start
@@ -139,9 +217,8 @@ class MazeEnvironment:
 
         return (self.state, reward, is_terminated, info)
 
-    def render(self):
-        for line in self.lines:
-            print(line)
+    def render(self, v_value=None):
+        self.drawer.draw(self.maze, self.state, v_value)
 
     def close(self):
         pass
@@ -162,45 +239,6 @@ class MazeEnvironment:
         v_value[self.maze == 1] = -1000
         v_value[self.goal] = 0
         return v_value
-
-class CartPoleStateConverter:
-    def __init__(self, epsilon=0.2):
-        self.epsilon = epsilon
-
-        self.min_position = -2.4
-        self.max_position = 2.4
-        self.position_size = 6
-
-        self.min_velocity = -2.0
-        self.max_velocity = 2.0
-        self.velocity_size = 6
-
-        self.min_angle = -0.5
-        self.max_angle = 0.5
-        self.angle_size = 6
-
-        self.min_angular_velocity = -1.5
-        self.max_angular_velocity = 1.5
-        self.angular_velocity_size = 6
-
-        self.action_num = 2
-
-    def state_to_index(self, state):
-        def bins(clip_min, clip_max, num):
-            return np.linspace(clip_min, clip_max, num + 1)[1:-1]
-
-        position, velocity, angle, angular_velocity = state
-
-        position_index = np.digitize(position, bins=bins(
-            self.min_position, self.max_position, self.position_size))
-        velocity_index = np.digitize(velocity, bins=bins(
-            self.min_velocity, self.max_velocity, self.velocity_size))
-        angle_index = np.digitize(angle, bins=bins(
-            self.min_angle, self.max_angle, self.angle_size))
-        angular_velocity_index = np.digitize(angular_velocity, bins=bins(
-            self.min_angular_velocity, self.max_angular_velocity, self.angular_velocity_size))
-        
-        return position_index, velocity_index, angle_index, angular_velocity_index
 
 def get_action_for_v_value(env, v_value, state):
     directions = ['R', 'L', 'D', 'U']
@@ -237,16 +275,16 @@ def value_iteration(
 
     v_value = env.get_initial_v_value()
 
-    max_time_step = 1000
+    max_time_step = 50
     time_steps = []
     for i in range(iter_count):
         update_v_value(env, v_value)
 
+    for i in range(iter_count):
         prev_state = env.reset()
         for t in range(max_time_step):
             if render:
-                pass
-                # env.render()
+                env.render()
 
             action = get_action_for_v_value(env, v_value, prev_state)
             state, _, is_terminated, _ = env.step(action)
