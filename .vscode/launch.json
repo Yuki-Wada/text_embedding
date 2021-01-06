@@ -150,7 +150,7 @@
             "request": "launch",
             "program": "${workspaceRoot}/examples/train_maze.py",
             "console": "integratedTerminal",
-            "justMyCode": false,
+            "justMyCode": true,
             "args": [
                 "--algorithm", "valueiter",
                 "--n_step", "4",

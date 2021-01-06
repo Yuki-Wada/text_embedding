@@ -78,14 +78,43 @@ class Drawer:
         self.goal = goal
 
         self._window = pyglet.window.Window(Drawer.GRID_SIZE * self.row_num, Drawer.GRID_SIZE * self.col_num)
-        self._window.set_caption("MARKOVDP-RL PLAYGROUND")
+        self._window.set_caption("MAZE")
+
+    def get_maze_color(self, maze, v_value):
+        colors = np.zeros((*maze.shape, 3))
+        colors[maze == 0] = 1
+
+        if v_value is not None:
+            v = v_value * (1 - maze)
+            max_v = np.max(v)
+            min_v = np.min(v)
+            h = (max_v - v) / (max_v - min_v) * 4
+            x = 1 - np.abs(h % 2 - 1)
+
+            triplets = [
+                [np.ones_like(x), x, np.zeros_like(x)],
+                [x, np.ones_like(x), np.zeros_like(x)],
+                [np.zeros_like(x), np.ones_like(x), x],
+                [np.zeros_like(x), x, np.ones_like(x)],
+            ]
+            for i, triplet in enumerate(triplets):
+                cond = (i <= h) * (h <= i + 1) * (maze == 0)
+                colors[:, :, 0][cond] = triplet[0][cond]
+                colors[:, :, 1][cond] = triplet[1][cond]
+                colors[:, :, 2][cond] = triplet[2][cond]
+            
+        colors *= 255
+        colors = np.clip(colors, 0, 255).astype(np.int)
+        
+        return colors
 
     def draw(self, maze, state, v_value=None):
         self._window.clear()
-        y = maze.shape[0]
+
+        colors = self.get_maze_color(maze, v_value)
         for pos_y in range(self.row_num):
             for pos_x in range(self.col_num):
-                color = Drawer.MAP_COLORS[maze[pos_y, pos_x]]
+                color = colors[pos_y, pos_x]
                 grid_shape = shapes.Rectangle(
                     x=pos_x * Drawer.GRID_SIZE,
                     y=(self.row_num - pos_y - 1) * Drawer.GRID_SIZE,
@@ -100,7 +129,7 @@ class Drawer:
             x=(x + 0.5) * Drawer.GRID_SIZE,
             y=(self.row_num - y - 0.5) * Drawer.GRID_SIZE,
             radius=Drawer.GRID_SIZE // 2,
-            color=(0, 0, 255),
+            color=(255, 255, 255),
         )
         grid_shape.draw()
 
@@ -110,7 +139,7 @@ class Drawer:
             y=(self.row_num - y - 1) * Drawer.GRID_SIZE,
             width=Drawer.GRID_SIZE,
             height=Drawer.GRID_SIZE,
-            color=(0, 255, 0),
+            color=(255, 255, 255),
         )
         grid_shape.draw()
 
@@ -123,9 +152,6 @@ class Drawer:
             color=(255, 0, 0),
         )
         grid_shape.draw()
-
-        if v_value is not None:
-            pass
 
         self._tick()
 
@@ -280,11 +306,10 @@ def value_iteration(
     for i in range(iter_count):
         update_v_value(env, v_value)
 
-    for i in range(iter_count):
         prev_state = env.reset()
         for t in range(max_time_step):
             if render:
-                env.render()
+                env.render(v_value)
 
             action = get_action_for_v_value(env, v_value, prev_state)
             state, _, is_terminated, _ = env.step(action)
