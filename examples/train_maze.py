@@ -26,7 +26,7 @@ def get_args():
     parser.add_argument('--time_step_plot', default='time_step.png')
     parser.add_argument('--maze', default='examples/maze.txt')
 
-    parser.add_argument("--iter_count", type=int, default=100)
+    parser.add_argument("--iter_count", type=int, default=2000)
 
     parser.add_argument("--algorithm", default='valueiter')
     parser.add_argument("--n_step", type=int, default=1)
@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument("--alpha", type=float, default=0.1)
     parser.add_argument("--gamma", type=float, default=0.95)
     parser.add_argument("--epsilon", type=float, default=0.1)
+    parser.add_argument("--lambda_value", type=float, default=0.2)
 
     parser.add_argument("--render", action='store_true')
 
@@ -256,8 +257,21 @@ class MazeEnvironment:
         return self.maze[state] == 1
 
     def get_initial_q_value(self):
-        q_value_shape = tuple(list(self.maze.shape + [4]))
+        q_value_shape = tuple(list(self.maze.shape) + [4])
         q_value = np.random.uniform(low=0, high=1, size=q_value_shape)
+
+        directions = ['R', 'L', 'D', 'U']
+        for y in range(self.maze.shape[0]):
+            for x in range(self.maze.shape[1]):
+                if self.maze[y, x] == 1:
+                    q_value[y, x] = -1000
+                    continue
+                for i, direction in enumerate(directions):
+                    self.locate((y, x))
+                    _, _, _, info = self.step(direction)
+                    if not info['effective_action']:
+                        q_value[y, x, i] = -1000
+
         return q_value
 
     def get_initial_v_value(self):
@@ -269,7 +283,7 @@ class MazeEnvironment:
 def get_action_for_v_value(env, v_value, state):
     directions = ['R', 'L', 'D', 'U']
     max_v = None
-    for direction in ['R', 'L', 'D', 'U']:
+    for direction in directions:
         next_state, _, _, info = env.step(direction)
         if info['effective_action'] and (max_v is None or max_v < v_value[next_state]):
             action = direction
@@ -278,9 +292,27 @@ def get_action_for_v_value(env, v_value, state):
 
     return action
 
+def get_action_for_q_value(env, q_value, state, epsilon):
+    directions = ['R', 'L', 'D', 'U']
+    max_q = None
+    possible_pairs = []
+    for i, direction in enumerate(directions):
+        _, _, _, info = env.step(direction)
+        if info['effective_action']:
+            possible_pairs.append((direction, i))
+            if max_q is None or max_q < q_value[state][i]:
+                action = direction
+                action_index = i
+                max_q = q_value[state][i]
+        env.locate(state)
+    
+    if np.random.uniform() < epsilon:
+        return random.sample(possible_pairs, 1)[0]
+
+    return action, action_index
+
 def value_iteration(
         env: MazeEnvironment,
-        gamma=0.95,
         iter_count=2000,
         render=False,
         figure_path=None,
@@ -325,6 +357,57 @@ def value_iteration(
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+def sarsa_lambda(
+        q_value,
+        env,
+        max_steps=200,
+        alpha=0.1,
+        gamma=0.95,
+        epsilon=0.1,
+        lambda_value=0.2,
+        iter_count=2000,
+        render=False,
+        figure_path=None,
+    ):
+    alpha *= 1 - lambda_value
+
+    time_steps = []
+    for i in range(iter_count):
+        z = np.zeros_like(q_value)
+        curr_epsilon = epsilon * (1 - i / iter_count)
+        prev_state = env.reset()
+        prev_action, prev_action_index = get_action_for_q_value(env, q_value, prev_state, curr_epsilon)
+        q_value_old = 0
+        for t in range(max_steps):
+            if render:
+                env.render(np.max(q_value, axis=2))
+
+            state, reward, is_terminated, _ = env.step(prev_action)
+            reward = 5 if is_terminated and t < int(max_steps * 0.975) else -1
+            action, action_index = get_action_for_q_value(env, q_value, state, curr_epsilon)
+
+            if prev_action is not None:
+                delta = reward + gamma * q_value[state][action_index] - q_value[prev_state][prev_action_index]
+
+                x = np.zeros_like(q_value)                
+                x[prev_state][prev_action_index] = 1
+                z = gamma * lambda_value * z + (1 - alpha * gamma * lambda_value * z[prev_state][prev_action_index]) * x
+
+                q_value += alpha * (delta + q_value[prev_state][prev_action_index] - q_value_old) * z
+                q_value -= alpha * (q_value[prev_state][prev_action_index] - q_value_old) * x
+                q_value_old = q_value[state][action_index]
+
+            prev_state = state
+            prev_action = action
+            prev_action_index = action_index
+            if is_terminated:
+                print("Episode {} finished after {} timesteps".format(i, t + 1))
+                time_steps.append(t + 1)
+                break
+
+        if (i + 1) % 20 == 0:
+            plot(time_steps, 'Time Step', figure_path)
+
 def run():
     set_logger()
     args = get_args()
@@ -339,6 +422,31 @@ def run():
             env,
             gamma=args.gamma,
             iter_count=args.iter_count,
+            render=args.render,
+            figure_path=figure_path,
+        )
+    elif args.algorithm == 'sarsalambda':
+        q_value = env.get_initial_q_value()
+        # warm up 
+        sarsa_lambda(
+            q_value,
+            env,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            epsilon=args.epsilon,
+            lambda_value=args.lambda_value,
+            iter_count=args.iter_count,
+            render=False,
+            figure_path=figure_path,
+        )
+        sarsa_lambda(
+            q_value,
+            env,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            epsilon=0,
+            lambda_value=args.lambda_value,
+            iter_count=10,
             render=args.render,
             figure_path=figure_path,
         )
