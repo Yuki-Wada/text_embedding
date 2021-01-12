@@ -1,5 +1,8 @@
 {
-    "python.pythonPath": "C:\\Users\\yukiw\\.virtualenvs\\mltools-X4gK6d44\\Scripts\\python.exe",
+    // "python.pythonPath": "C:\\Users\\yukiw\\AppData\\Local\\Programs\\Python\\Python39\\python.exe",
+    "python.pythonPath": "venvs\\gym\\.venv\\Scripts\\python.exe",
+    // "python.pythonPath": "venvs\\torch_cpu\\.venv\\Scripts\\python.exe",
+    // "python.pythonPath": "venvs\\torch_gpu\\.venv\\Scripts\\python.exe",
     "python.linting.pylintArgs": [
         "--disable=C0103",
         "--extension-pkg-whitelist=numpy, torch",

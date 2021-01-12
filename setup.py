@@ -6,7 +6,6 @@ from setuptools.command.build_ext import build_ext
 # Extensions
 ext_modules = []
 
-
 c_extensions = {}
 cpp_extensions = {
     'mltools.model.word2vec_impl.word2vec_impl_cython': ['mltools/model/word2vec_impl/word2vec_impl_cython.pyx'],
