@@ -11,7 +11,6 @@ from queue import Queue
 import numpy as np
 
 import pyglet
-from pyglet import shapes
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -109,50 +108,66 @@ class Drawer:
         
         return colors
 
+    def draw_rect_angle(self, x, y, width, height, color):
+        rect_angle = pyglet.graphics.vertex_list(
+            4,
+            ('v2f', [x, y, x + width, y, x + width, y + height, x, y + height]),
+            ('c3B', sum([color for _ in range(4)], tuple())),
+        )
+        rect_angle.draw(pyglet.gl.GL_QUADS)
+
+    def draw_circle(self, x, y, radius, color):
+        points = 20
+        vertex = []
+        for i in range(points):
+            angle = 2 * np.pi * i / points
+            vertex += [x + radius * np.cos(angle), y + + radius * np.sin(angle)]
+
+        circle = pyglet.graphics.vertex_list(
+            points, ('v2f', vertex), ('c3B', sum([color for _ in range(points)], tuple())),
+        )
+        circle.draw(pyglet.gl.GL_POLYGON)
+
     def draw(self, maze, state, v_value=None):
         self._window.clear()
 
         colors = self.get_maze_color(maze, v_value)
         for pos_y in range(self.row_num):
             for pos_x in range(self.col_num):
-                color = colors[pos_y, pos_x]
-                grid_shape = shapes.Rectangle(
+                color = tuple(colors[pos_y, pos_x])
+                self.draw_rect_angle(
                     x=pos_x * Drawer.GRID_SIZE,
                     y=(self.row_num - pos_y - 1) * Drawer.GRID_SIZE,
                     width=Drawer.GRID_SIZE,
                     height=Drawer.GRID_SIZE,
                     color=color,
                 )
-                grid_shape.draw()
 
         y, x = state
-        grid_shape = shapes.Circle(
+        self.draw_circle(
             x=(x + 0.5) * Drawer.GRID_SIZE,
             y=(self.row_num - y - 0.5) * Drawer.GRID_SIZE,
             radius=Drawer.GRID_SIZE // 2,
             color=(255, 255, 255),
         )
-        grid_shape.draw()
 
         y, x = self.start
-        grid_shape = shapes.Rectangle(
+        self.draw_rect_angle(
             x=x * Drawer.GRID_SIZE,
             y=(self.row_num - y - 1) * Drawer.GRID_SIZE,
             width=Drawer.GRID_SIZE,
             height=Drawer.GRID_SIZE,
             color=(255, 255, 255),
         )
-        grid_shape.draw()
 
         y, x = self.goal
-        grid_shape = shapes.Rectangle(
+        self.draw_rect_angle(
             x=x * Drawer.GRID_SIZE,
             y=(self.row_num - y - 1) * Drawer.GRID_SIZE,
             width=Drawer.GRID_SIZE,
             height=Drawer.GRID_SIZE,
             color=(255, 0, 0),
         )
-        grid_shape.draw()
 
         self._tick()
 
