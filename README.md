@@ -66,6 +66,10 @@ https://github.com/ikegami-yukino/mecab/releases/tag/v0.996
         - 仮想環境を現ディレクトリ下の .venv ディレクトリに作成するには、`poetry config virtualenvs.in-project true` を実行すればよい
     1. 仮想環境を作成し、パッケージをインストール
         1. OpenAI Gym を利用する場合は、venvs/gym ディレクトリで `poetry install` を実行
+            - Windoes 上で train_pong.py を実行する場合、以下も行う
+                1. 以下の URL から ale_c.dll をダウンロード  
+                https://drive.google.com/u/0/uc?id=1WQrEBliYbASwNDyyVIlPFSZHRwAa7sPp&export=download
+                1. venvs/gym/.venv/Lib/site-packages/atari_py/ale_interface/ ディレクトリ以下にダウンロードした ale_c.dll をコピー
         1. Torch を CPU で利用する場合は、venvs/torch_cpu ディレクトリで `poetry install` を実行
         1. Torch を GPU で利用する場合は、venvs/torch_gpu ディレクトリで `poetry install` を実行
 1. ルートディレクトリを Python のモジュール検索パスに追加

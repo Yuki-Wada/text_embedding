@@ -13,10 +13,8 @@ Train a cart pole task.
 import os
 import argparse
 import logging
-from itertools import product
 import random
 from queue import Queue, PriorityQueue
-import heapq
 import numpy as np
 import gym
 import matplotlib.pyplot as plt
@@ -25,9 +23,11 @@ from mltools.utils import set_seed, set_logger, dump_json
 
 logger = logging.getLogger(__name__)
 
+
 def setup_output_dir(output_dir_path, args):
     os.makedirs(output_dir_path, exist_ok=True)
     dump_json(args, os.path.join(output_dir_path, 'args.json'))
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -55,13 +55,15 @@ def get_args():
 
     return args
 
+
 def plot(values, label, figure_path):
     episode_numbers = np.arange(0, len(values))
-    
+
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
 
-    ax.plot(episode_numbers, np.array(values)[episode_numbers], label='time_step')
+    ax.plot(episode_numbers, np.array(values)[
+            episode_numbers], label='time_step')
     ax.set_xlabel('Episode')
     ax.set_ylabel(label)
     ax.legend()
@@ -70,6 +72,7 @@ def plot(values, label, figure_path):
     x_ax.set_major_locator(MaxNLocator(integer=True))
     plt.savefig(figure_path)
     plt.close()
+
 
 class CartPoleStateConverter:
     def __init__(self, epsilon=0.2):
@@ -107,7 +110,7 @@ class CartPoleStateConverter:
             self.min_angle, self.max_angle, self.angle_size))
         angular_velocity_index = np.digitize(angular_velocity, bins=bins(
             self.min_angular_velocity, self.max_angular_velocity, self.angular_velocity_size))
-        
+
         return position_index, velocity_index, angle_index, angular_velocity_index
 
     def get_initial_q_value(self):
@@ -125,22 +128,24 @@ class CartPoleStateConverter:
 
         return q_value
 
+
 def get_action(q_value, state_converter, state):
     index = state_converter.state_to_index(state)
     if np.random.uniform() <= state_converter.epsilon:
         return np.random.randint(0, state_converter.action_num)
     return np.argmax(q_value[index])
 
+
 def monte_carlo(
-        env,
-        state_converter,
-        max_steps=200,
-        first_visit=False,
-        gamma=0.95,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    first_visit=False,
+    gamma=0.95,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
     q_value = state_converter.get_initial_q_value()
     appearances = np.zeros_like(q_value)
 
@@ -148,7 +153,8 @@ def monte_carlo(
         index = state_converter.state_to_index(state)
 
         q_value[index][action] = \
-            (q_value[index][action] * appearances[index][action] + G) / (appearances[index][action] + 1)
+            (q_value[index][action] * appearances[index]
+             [action] + G) / (appearances[index][action] + 1)
         appearances[index][action] += 1
 
     time_steps = []
@@ -165,7 +171,8 @@ def monte_carlo(
             reward = -10 if is_terminated and t < int(max_steps * 0.975) else 1
 
             idx = state_converter.state_to_index(state)
-            quadruplet.append((prev_state, action, reward, (idx, action) not in seen_in_episode))
+            quadruplet.append((prev_state, action, reward,
+                               (idx, action) not in seen_in_episode))
             seen_in_episode.add((idx, action))
 
             prev_state = state
@@ -183,18 +190,20 @@ def monte_carlo(
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def sarsa(
-        env,
-        state_converter,
-        max_steps=200,
-        n_step=1,
-        alpha=0.1,
-        gamma=0.95,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    n_step=1,
+    alpha=0.1,
+    gamma=0.95,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
     gamma_n = gamma ** n_step
+
     def update_q_value(q_value, prev_state, prev_action, state, action, return_value):
         prev_index = state_converter.state_to_index(prev_state)
         delta = return_value - q_value[prev_index][prev_action]
@@ -223,7 +232,8 @@ def sarsa(
                 env.render()
 
             state, reward, is_terminated, _ = env.step(prev_action)
-            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1
+            reward = - \
+                100 if is_terminated and t < int(max_steps * 0.975) else 1
             action = get_action(q_value, state_converter, state)
 
             queue.put((prev_state, prev_action, reward))
@@ -232,7 +242,8 @@ def sarsa(
             G /= gamma
 
             if t + 1 >= n_step and target_state is not None:
-                update_q_value(q_value, target_state, target_action, state, action, G)
+                update_q_value(q_value, target_state,
+                               target_action, state, action, G)
             G -= target_reward
 
             prev_state = state
@@ -241,7 +252,8 @@ def sarsa(
                 while not queue.empty():
                     target_state, target_action, target_reward = queue.get()
                     G /= gamma
-                    update_q_value(q_value, target_state, target_action, None, None, G)
+                    update_q_value(q_value, target_state,
+                                   target_action, None, None, G)
                     G -= target_reward
 
                 print("Episode {} finished after {} timesteps".format(i, t + 1))
@@ -251,18 +263,20 @@ def sarsa(
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def q_learning(
-        env,
-        state_converter,
-        max_steps=200,
-        n_step=1,
-        alpha=0.1,
-        gamma=0.95,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    n_step=1,
+    alpha=0.1,
+    gamma=0.95,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
     gamma_n = gamma ** n_step
+
     def update_q_value(q_value, prev_state, action, state, return_value):
         prev_index = state_converter.state_to_index(prev_state)
         delta = return_value - q_value[prev_index][action]
@@ -291,7 +305,8 @@ def q_learning(
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
+            reward = - \
+                100 if is_terminated and t < int(max_steps * 0.975) else 1
 
             queue.put((prev_state, action, reward))
             target_state, target_action, target_reward = queue.get()
@@ -307,29 +322,32 @@ def q_learning(
                 while not queue.empty():
                     target_state, target_action, target_reward = queue.get()
                     G /= gamma
-                    update_q_value(q_value, target_state, target_action, None, G)
+                    update_q_value(q_value, target_state,
+                                   target_action, None, G)
                     G -= target_reward
 
                 print("Episode {} finished after {} timesteps".format(i, t + 1))
                 time_steps.append(t + 1)
                 break
-        
+
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def dyna_q(
-        env,
-        state_converter,
-        max_steps=200,
-        n_step=1,
-        alpha=0.1,
-        gamma=0.95,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    n_step=1,
+    alpha=0.1,
+    gamma=0.95,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
     def update_q_value(q_value, prev_state_index, action, state_index, reward):
-        delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+        delta = reward + gamma * \
+            np.max(q_value[state_index]) - q_value[prev_state_index][action]
         q_value[prev_state_index][action] += alpha * delta
 
     q_value = state_converter.get_initial_q_value()
@@ -345,18 +363,21 @@ def dyna_q(
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
+            reward = - \
+                100 if is_terminated and t < int(max_steps * 0.975) else 1
 
             prev_state_index = state_converter.state_to_index(prev_state)
             state_index = state_converter.state_to_index(state)
 
-            update_q_value(q_value, prev_state_index, action, state_index, reward)
+            update_q_value(q_value, prev_state_index,
+                           action, state_index, reward)
 
             model[(prev_state_index, action)] = (state_index, reward)
             memory.add((prev_state_index, action))
-            
+
             for memory_prev_state_index, memory_action in random.sample(memory, min(n_step, len(memory))):
-                memory_state_index, memory_reward = model[(memory_prev_state_index, memory_action)]
+                memory_state_index, memory_reward = model[(
+                    memory_prev_state_index, memory_action)]
                 update_q_value(
                     q_value, memory_prev_state_index, memory_action, memory_state_index, memory_reward)
 
@@ -365,22 +386,23 @@ def dyna_q(
                 print(f'Episode {i} finished after {t + 1} timesteps')
                 time_steps.append(t + 1)
                 break
-        
+
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def prioritized_sweeping(
-        env,
-        state_converter,
-        max_steps=200,
-        n_step=1,
-        alpha=0.1,
-        gamma=0.95,
-        thre=1.0,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    n_step=1,
+    alpha=0.1,
+    gamma=0.95,
+    thre=1.0,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
 
     q_value = state_converter.get_initial_q_value()
     model = dict()
@@ -396,12 +418,15 @@ def prioritized_sweeping(
 
             action = get_action(q_value, state_converter, prev_state)
             state, reward, is_terminated, _ = env.step(action)
-            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1 
+            reward = - \
+                100 if is_terminated and t < int(max_steps * 0.975) else 1
 
             prev_state_index = state_converter.state_to_index(prev_state)
             state_index = state_converter.state_to_index(state)
 
-            delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+            delta = reward + gamma * \
+                np.max(q_value[state_index]) - \
+                q_value[prev_state_index][action]
             q_value[prev_state_index][action] += alpha * delta
             if -abs(delta) > thre:
                 p_queue.put((-abs(delta), prev_state_index, action))
@@ -414,13 +439,18 @@ def prioritized_sweeping(
                 if p_queue.empty():
                     break
                 _, memory_prev_state_index, memory_action = p_queue.get()
-                memory_state_index, memory_reward = model[(memory_prev_state_index, memory_action)]
-                delta = reward + gamma * np.max(q_value[state_index]) - q_value[prev_state_index][action]
+                memory_state_index, memory_reward = model[(
+                    memory_prev_state_index, memory_action)]
+                delta = reward + gamma * \
+                    np.max(q_value[state_index]) - \
+                    q_value[prev_state_index][action]
                 q_value[prev_state_index][action] += alpha * delta
 
                 if memory_prev_state_index in state_in_retro:
                     for s_bar, a_bar, r_bar in state_in_retro[memory_prev_state_index]:
-                        delta = r_bar + gamma * np.max(q_value[memory_prev_state_index]) - q_value[s_bar][a_bar]
+                        delta = r_bar + gamma * \
+                            np.max(q_value[memory_prev_state_index]
+                                   ) - q_value[s_bar][a_bar]
                         if -abs(delta) > thre:
                             p_queue.put((-abs(delta), s_bar, a_bar))
 
@@ -429,21 +459,22 @@ def prioritized_sweeping(
                 print("Episode {} finished after {} timesteps".format(i, t + 1))
                 time_steps.append(t + 1)
                 break
-        
+
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def sarsa_lambda(
-        env,
-        state_converter,
-        max_steps=200,
-        alpha=0.1,
-        gamma=0.95,
-        lambda_value=0.2,
-        episode_count=2000,
-        render=False,
-        figure_path=None,
-    ):
+    env,
+    state_converter,
+    max_steps=200,
+    alpha=0.1,
+    gamma=0.95,
+    lambda_value=0.2,
+    episode_count=2000,
+    render=False,
+    figure_path=None,
+):
     alpha *= 1 - lambda_value
     q_value = state_converter.get_initial_q_value()
 
@@ -458,21 +489,28 @@ def sarsa_lambda(
                 env.render()
 
             state, reward, is_terminated, _ = env.step(prev_action)
-            reward = -100 if is_terminated and t < int(max_steps * 0.975) else 1
+            reward = - \
+                100 if is_terminated and t < int(max_steps * 0.975) else 1
             action = get_action(q_value, state_converter, state)
 
             if prev_action is not None:
                 prev_index = state_converter.state_to_index(prev_state)
                 index = state_converter.state_to_index(state)
 
-                delta = reward + gamma * q_value[index][action] - q_value[prev_index][prev_action]
+                delta = reward + gamma * \
+                    q_value[index][action] - q_value[prev_index][prev_action]
 
-                x = np.zeros_like(q_value)                
+                x = np.zeros_like(q_value)
                 x[prev_index][prev_action] = 1
-                z = gamma * lambda_value * z + (1 - alpha * gamma * lambda_value * z[prev_index][prev_action]) * x
-                
-                q_value += alpha * (delta + q_value[prev_index][prev_action] - q_value_old) * z
-                q_value -= alpha * (q_value[prev_index][prev_action] - q_value_old) * x
+                z = gamma * lambda_value * z + \
+                    (1 - alpha * gamma * lambda_value *
+                     z[prev_index][prev_action]) * x
+
+                q_value += alpha * \
+                    (delta + q_value[prev_index]
+                     [prev_action] - q_value_old) * z
+                q_value -= alpha * \
+                    (q_value[prev_index][prev_action] - q_value_old) * x
                 q_value_old = q_value[index][action]
 
             prev_state = state
@@ -485,13 +523,14 @@ def sarsa_lambda(
         if (i + 1) % 20 == 0:
             plot(time_steps, 'Time Step', figure_path)
 
+
 def run():
     set_logger()
     args = get_args()
     set_seed(args.seed)
 
     figure_path = os.path.join(args.output_dir, args.time_step_plot)
-    setup_output_dir(args.output_dir, dict(args._get_kwargs())) #pylint: disable=protected-access
+    setup_output_dir(args.output_dir, dict(args._get_kwargs()))
 
     state_converter = CartPoleStateConverter(epsilon=args.epsilon)
 
@@ -575,6 +614,7 @@ def run():
             figure_path=figure_path,
         )
     env.close()
+
 
 if __name__ == '__main__':
     run()

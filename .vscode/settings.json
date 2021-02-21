@@ -3,15 +3,18 @@
     "python.pythonPath": "venvs\\gym\\.venv\\Scripts\\python.exe",
     // "python.pythonPath": "venvs\\torch_cpu\\.venv\\Scripts\\python.exe",
     // "python.pythonPath": "venvs\\torch_gpu\\.venv\\Scripts\\python.exe",
-    "python.linting.pylintArgs": [
-        "--disable=C0103",
-        "--extension-pkg-whitelist=numpy, torch",
-        "--generated-members=numpy.*",
-        "--generated-members=torch.*",
-        "--generated-members=tensorflow.*",
-        "--ignored-modules=tensorflow.keras",
-        "--ignored-modules=torch",
-        "--not-callable=torch.*",
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.linting.lintOnSave": true,
+    "python.linting.flake8Args": [
+        "--max-complexity=20",
+        "--max-line-length=160",
+    ],
+    "python.formatting.provider": "autopep8",
+    "python.formatting.autopep8Args": [
+        "--aggressive",
+        "--aggressive",
     ],
     "files.associations": {
         "iostream": "cpp",
@@ -31,5 +34,24 @@
         "openglsupport": "cpp",
         "specialfunctions": "cpp",
         "splines": "cpp"
-    }
+    },
+    "files.trimTrailingWhitespace": true,
+    "[markdown]": {
+        // markdownは 行末の半角スペース2つで改行なので、消さないようにする
+        "files.trimTrailingWhitespace": false,
+        //  スペースは ・ で表示される
+        "editor.renderWhitespace": "boundary"
+    },
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": true,
+    },
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+    "editor.fontFamily": "'Migu 1M', Menlo, Monaco, 'Courier New', monospace",
+    "editor.renderControlCharacters": false,
+    "editor.wordWrap": "on",
 }

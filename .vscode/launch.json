@@ -153,8 +153,8 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--algorithm", "sarsalambda",
-                "--iter_count", "1000",
+                "--algorithm", "valueiter",
+                "--iter_count", "100",
                 "--n_step", "4",
                 "--first_visit",
                 "--alpha", "0.5",
@@ -163,6 +163,26 @@
                 "--lambda_value", "0.8",
                 "--seed", "0",
                 "--render",
+            ]
+        },
+        {
+            "name": "Python: Train Pong",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/train_pong.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                // "--algorithm", "sarsalambda",
+                // "--iter_count", "100",
+                // "--n_step", "4",
+                // "--first_visit",
+                // "--alpha", "0.5",
+                // "--gamma", "0.9",
+                // "--epsilon", "0.2",
+                // "--lambda_value", "0.8",
+                // "--seed", "0",
+                // "--render",
             ]
         },
         {
