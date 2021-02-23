@@ -147,7 +147,7 @@ void update_w_avx_impl(
         output = 0.0f;
         for (j = 0; j + alignment < hidden_dim; j += alignment) {
             auto z = _mm256_mul_ps(
-                _mm256_loadu_ps(w_in + index_in * hidden_dim + j), 
+                _mm256_loadu_ps(w_in + index_in * hidden_dim + j),
                 _mm256_loadu_ps(w_out + index_out * hidden_dim + j)
             );
             z = _mm256_hadd_ps(z, z);
@@ -212,7 +212,7 @@ float* np_to_ptr_test(float* w1, float* w2, unsigned N) {
     float a = 0.0f;
     for (unsigned i = 0; i < N; i += 8) {
         auto z = _mm256_mul_ps(
-            _mm256_loadu_ps(w1 + i), 
+            _mm256_loadu_ps(w1 + i),
             _mm256_loadu_ps(w2 + i)
         );
         z = _mm256_hadd_ps(z, z);
@@ -223,17 +223,4 @@ float* np_to_ptr_test(float* w1, float* w2, unsigned N) {
     }
 
     return w1;
-}
-
-int main() {
-    unsigned N = 32;
-    float* w1 = (float *)_mm_malloc(N * sizeof(float), 16);
-    float* w2 = (float *)_mm_malloc(N * sizeof(float), 16);
-    for (unsigned i = 0; i < N; ++i) {
-        w1[i] = w2[i] = i;
-    }
-
-    // np_to_ptr_test(w1, w2, N);
-
-    return 0;
 }
